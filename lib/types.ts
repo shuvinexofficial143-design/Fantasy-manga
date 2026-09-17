@@ -6,6 +6,8 @@ export type Character={
   role:string;
   appearance:string;
   outfit:string;
+  continuityNotes?:string;
+  locked?:boolean;
   referenceImage?:string;
 };
 
@@ -14,7 +16,18 @@ export type Location={
   name:string;
   description:string;
   lighting:string;
+  continuityNotes?:string;
+  locked?:boolean;
   referenceImage?:string;
+};
+
+export type SceneCharacterState={
+  characterId:string;
+  position:string;
+  action:string;
+  direction:string;
+  expression:string;
+  stateNotes:string;
 };
 
 export type CinematicImage={
@@ -28,8 +41,17 @@ export type CinematicImage={
   provider?:string;
   model?:string;
   seed?:number;
+  referenceCount?:number;
   status:"idle"|"generating"|"completed"|"failed";
   error?:string;
+  locationId?:string;
+  cameraShot:string;
+  cameraAngle:string;
+  cameraDirection:string;
+  continuityNotes:string;
+  continuityStrength:number;
+  usePreviousImage:boolean;
+  characterStates:SceneCharacterState[];
 };
 
 export type Project={
@@ -39,6 +61,9 @@ export type Project={
   story:string;
   visualStyle:string;
   aspectRatio:string;
+  worldNotes:string;
+  continuityMode:"strict"|"balanced";
+  styleReferenceImage?:string;
   characters:Character[];
   locations:Location[];
   images:CinematicImage[];
