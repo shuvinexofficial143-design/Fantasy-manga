@@ -1,4 +1,4 @@
-import type {CinematicImage,Project} from "./types";
+import type {CinematicImage,Project,SceneCharacterState} from "./types";
 
 const id=()=>typeof crypto!=="undefined"&&"randomUUID" in crypto?crypto.randomUUID():`${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
@@ -11,6 +11,8 @@ export function createProject(name="My Cinematic Project"):Project{
     story:"",
     visualStyle:"Cinematic Painting",
     aspectRatio:"16:9",
+    worldNotes:"",
+    continuityMode:"strict",
     characters:[],
     locations:[],
     images:[],
@@ -19,7 +21,7 @@ export function createProject(name="My Cinematic Project"):Project{
   };
 }
 
-export function createImage(sceneNumber:number,sourceText:string):CinematicImage{
+export function createImage(sceneNumber:number,sourceText:string,characterStates:SceneCharacterState[]=[]):CinematicImage{
   const cleaned=sourceText.trim();
   const short=cleaned.split(/[.!?।]/)[0]?.trim().slice(0,72)||`Scene ${sceneNumber}`;
   return {
@@ -28,7 +30,14 @@ export function createImage(sceneNumber:number,sourceText:string):CinematicImage
     title:short,
     sourceText:cleaned,
     prompt:"",
-    negativePrompt:"comic panels, manga page layout, webtoon panels, split frame, gutters, speech bubbles, captions, UI, watermark, logo, text",
-    status:"idle"
+    negativePrompt:"comic panels, manga page layout, webtoon panels, split frame, gutters, speech bubbles, captions, UI, watermark, logo, text, duplicate character, wrong costume, changed face, changed hairstyle, inconsistent architecture",
+    status:"idle",
+    cameraShot:"medium wide shot",
+    cameraAngle:"eye level",
+    cameraDirection:"preserve screen direction from previous scene",
+    continuityNotes:"",
+    continuityStrength:92,
+    usePreviousImage:true,
+    characterStates
   };
 }
