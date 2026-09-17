@@ -1,209 +1,62 @@
 "use client";
-
-import {ChangeEvent,useMemo,useState} from "react";
-import {BookOpen,Download,ImageIcon,Loader2,MapPinned,Plus,Sparkles,Upload} from "lucide-react";
-import {buildCinematicPrompt,hashString,splitStoryIntoScenes} from "@/lib/cinematic";
+import {useMemo,useState,type ChangeEvent} from "react";
+import {BookOpen,Loader2,Plus,Sparkles,Users} from "lucide-react";
+import {buildCinematicPrompt,fallbackCharacterStates,hashString,splitStoryIntoScenes} from "@/lib/cinematic";
 import {createImage} from "@/lib/default-project";
-import type {Character,CinematicImage,Location,Project} from "@/lib/types";
+import type {Character,CinematicImage,Location,Project,SceneCharacterState} from "@/lib/types";
 import {useProject} from "./project-provider";
+import {ASPECT_RATIOS,CharactersPanel,LocationsPanel,STYLE_PRESETS,StoryPanel} from "./cinematic/studio-forms";
+import {SceneCard} from "./cinematic/scene-card";
+import {GalleryPanel} from "./cinematic/gallery-panel";
 
-type Tab="story"|"characters"|"locations"|"images"|"export";
-const stylePresets=["Cinematic Painting","Epic Fantasy Painting","Dark Fantasy Cinematic","Painterly Realism","Dreamlike Fantasy","Ultra-Detailed Concept Art"] as const;
-const aspectRatios=["16:9","9:16","4:5","1:1","21:9"] as const;
-
+type Tab="story"|"characters"|"locations"|"scenes"|"gallery";
 const uid=()=>typeof crypto!=="undefined"&&"randomUUID" in crypto?crypto.randomUUID():`${Date.now()}-${Math.random().toString(36).slice(2)}`;
-
-async function fileToDataUrl(file:File){
-  return await new Promise<string>((resolve,reject)=>{
-    const reader=new FileReader();
-    reader.onerror=()=>reject(new Error("Image could not be read."));
-    reader.onload=()=>resolve(String(reader.result||""));
-    reader.readAsDataURL(file);
-  });
-}
-
-function downloadImage(dataUrl:string,filename:string){
-  const a=document.createElement("a");a.href=dataUrl;a.download=filename;a.click();
+async function fileToDataUrl(file:File){return await new Promise<string>((resolve,reject)=>{const reader=new FileReader();reader.onerror=()=>reject(new Error("Image could not be read."));reader.onload=()=>resolve(String(reader.result||""));reader.readAsDataURL(file)})}
+function newState(character:Character,index=0):SceneCharacterState{return {characterId:character.id,position:index===0?"center":"right",action:"continue naturally from the story",direction:"preserve previous screen direction",expression:"story-appropriate",stateNotes:character.continuityNotes||"canonical identity, outfit and props unchanged"}}
+function referencesFor(scene:CinematicImage,project:Project,previous?:CinematicImage){
+  const refs:Array<{image:string;label:string}>=[];
+  for(const state of scene.characterStates){const character=project.characters.find((item)=>item.id===state.characterId);if(character?.referenceImage&&!refs.some((item)=>item.image===character.referenceImage))refs.push({image:character.referenceImage,label:`Character master — ${character.name}`});if(refs.filter((item)=>item.label.startsWith("Character master")).length>=3)break}
+  const location=project.locations.find((item)=>item.id===scene.locationId);const locationRef=location?.referenceImage?{image:location.referenceImage,label:`Location master — ${location.name}`}:undefined;
+  if(refs.length<=2&&locationRef)refs.push(locationRef);
+  if(scene.usePreviousImage&&previous?.image){if(refs.length>=4)refs.pop();refs.push({image:previous.image,label:`Previous generated frame — Scene ${previous.sceneNumber}`})}
+  if(refs.length<4&&locationRef&&!refs.some((item)=>item.image===locationRef.image))refs.push(locationRef);
+  if(refs.length<4&&project.styleReferenceImage)refs.push({image:project.styleReferenceImage,label:"Master style reference"});
+  return {images:refs.slice(0,4).map((item)=>item.image),labels:refs.slice(0,4).map((item)=>item.label)};
 }
 
 export function CinematicProductionStudio(){
-  const {state,project,setState,updateProject,createNewProject}=useProject();
-  const [tab,setTab]=useState<Tab>("story");
-  const [busy,setBusy]=useState("");
-  const [progress,setProgress]=useState("");
-  const [notice,setNotice]=useState("");
-  const [error,setError]=useState("");
+  const {state,project,setState,createNewProject}=useProject();
+  const [tab,setTab]=useState<Tab>("story"),[busy,setBusy]=useState(""),[progress,setProgress]=useState(""),[notice,setNotice]=useState(""),[error,setError]=useState("");
+  const completed=useMemo(()=>project.images.filter((image)=>Boolean(image.image)).length,[project.images]);
+  const commit=(next:Project)=>setState((current)=>({...current,projects:current.projects.map((item)=>item.id===next.id?next:item)}));
+  const patch=(value:Partial<Project>)=>commit({...project,...value,updatedAt:new Date().toISOString()});
+  const patchScene=(id:string,value:Partial<CinematicImage>)=>patch({images:project.images.map((image)=>image.id===id?{...image,...value}:image)});
+  const addCharacter=()=>patch({characters:[...project.characters,{id:uid(),name:`Character ${project.characters.length+1}`,role:"Main character",appearance:"",outfit:"",continuityNotes:"",locked:true}]});
+  const addLocation=()=>patch({locations:[...project.locations,{id:uid(),name:`Location ${project.locations.length+1}`,description:"",lighting:"Cinematic natural light",continuityNotes:"",locked:true}]});
+  const updateCharacter=(id:string,value:Partial<Character>)=>patch({characters:project.characters.map((item)=>item.id===id?{...item,...value}:item)});
+  const updateLocation=(id:string,value:Partial<Location>)=>patch({locations:project.locations.map((item)=>item.id===id?{...item,...value}:item)});
+  const upload=async(event:ChangeEvent<HTMLInputElement>)=>{const file=event.target.files?.[0];return file?await fileToDataUrl(file):undefined};
+  const uploadCharacter=async(id:string,event:ChangeEvent<HTMLInputElement>)=>{try{const image=await upload(event);if(image)updateCharacter(id,{referenceImage:image})}catch(reason){setError(reason instanceof Error?reason.message:"Upload failed")}};
+  const uploadLocation=async(id:string,event:ChangeEvent<HTMLInputElement>)=>{try{const image=await upload(event);if(image)updateLocation(id,{referenceImage:image})}catch(reason){setError(reason instanceof Error?reason.message:"Upload failed")}};
+  const uploadStyle=async(event:ChangeEvent<HTMLInputElement>)=>{try{const image=await upload(event);if(image)patch({styleReferenceImage:image})}catch(reason){setError(reason instanceof Error?reason.message:"Upload failed")}};
 
-  const tabs:[Tab,string][]=[["story","Story"],["characters","Characters"],["locations","Locations"],["images","Cinematic Images"],["export","Export"]];
-  const completed=useMemo(()=>project.images.filter((image)=>image.image).length,[project.images]);
+  const fallbackPlan=()=>{let previous:CinematicImage|undefined;return splitStoryIntoScenes(project.story).map((text,index)=>{const named=project.characters.filter((c)=>c.name&&text.toLowerCase().includes(c.name.toLowerCase()));const scene=createImage(index+1,text,named.length?named.map(newState):fallbackCharacterStates(project,previous));scene.locationId=previous?.locationId||project.locations[0]?.id;if(previous)scene.continuityNotes="Continue physical state, injuries, props, screen geography and background from previous scene unless this beat changes them.";previous=scene;return scene})};
+  const planStory=async()=>{if(!project.story.trim()){setError("पहले Full Story में story paste करें।");return}setBusy("planning");setProgress("Tracking characters, locations, movement and screen direction…");setError("");setNotice("");try{const response=await fetch("/api/plan",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({story:project.story,characters:project.characters,locations:project.locations})});const data=await response.json() as {scenes?:Array<{title:string;sourceText:string;locationId:string;cameraShot:string;cameraAngle:string;cameraDirection:string;continuityNotes:string;characters:SceneCharacterState[]}>;error?:string};if(!response.ok||!data.scenes?.length)throw new Error(data.error||"Planner unavailable");const images=data.scenes.map((item,index)=>({...createImage(index+1,item.sourceText,item.characters),title:item.title||`Scene ${index+1}`,locationId:item.locationId||undefined,cameraShot:item.cameraShot||"medium wide shot",cameraAngle:item.cameraAngle||"eye level",cameraDirection:item.cameraDirection||"preserve screen direction",continuityNotes:item.continuityNotes||""}));commit({...project,images,updatedAt:new Date().toISOString()});setTab("scenes");setNotice(`${images.length} continuity-aware scenes planned.`)}catch{const images=fallbackPlan();commit({...project,images,updatedAt:new Date().toISOString()});setTab("scenes");setNotice(`${images.length} scenes local continuity inheritance से बनाए गए। Vertex story planner configure होने पर entry/exit और movement tracking और बेहतर होगा।`)}finally{setBusy("");setProgress("")}};
 
-  const patchProject=(patch:Partial<Project>)=>updateProject((current)=>({...current,...patch,updatedAt:new Date().toISOString()}));
+  const patchCharacterState=(scene:CinematicImage,characterId:string,value:Partial<SceneCharacterState>)=>patchScene(scene.id,{characterStates:scene.characterStates.map((state)=>state.characterId===characterId?{...state,...value}:state)});
+  const toggleCharacter=(scene:CinematicImage,character:Character,enabled:boolean)=>patchScene(scene.id,{characterStates:enabled?[...scene.characterStates.filter((state)=>state.characterId!==character.id),newState(character,scene.characterStates.length)]:scene.characterStates.filter((state)=>state.characterId!==character.id)});
 
-  const buildScenes=()=>{
-    setError("");setNotice("");
-    const parts=splitStoryIntoScenes(project.story);
-    if(!parts.length){setError("पहले Full Story में story paste करें।");return}
-    const images=parts.map((part,index)=>{
-      const current=createImage(index+1,part);
-      return {...current,prompt:buildCinematicPrompt({scene:part,style:project.visualStyle,aspectRatio:project.aspectRatio,characters:project.characters,locations:project.locations})};
-    });
-    patchProject({images});
-    setTab("images");
-    setNotice(`${images.length} full-frame cinematic scenes तैयार हैं। इनमें कोई manga panel या webtoon layout नहीं रखा गया है।`);
-  };
+  const render=async(sceneId:string,working:Project)=>{const ordered=[...working.images].sort((a,b)=>a.sceneNumber-b.sceneNumber),index=ordered.findIndex((item)=>item.id===sceneId);if(index<0)throw new Error("Scene not found");const scene=ordered[index],previous=index>0?ordered[index-1]:undefined;if(working.continuityMode==="strict"&&scene.usePreviousImage&&index>0&&!previous?.image)throw new Error(`Generate Scene ${previous?.sceneNumber} first for strict continuity.`);const prompt=buildCinematicPrompt({scene,project:working,previousScene:previous}),refs=referencesFor(scene,working,previous),generating={...scene,status:"generating" as const,error:undefined,prompt};let next={...working,images:working.images.map((item)=>item.id===scene.id?generating:item),updatedAt:new Date().toISOString()};commit(next);setProgress(`Scene ${scene.sceneNumber}: preserving character state, location and previous-frame continuity…`);const response=await fetch("/api/generate",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({prompt,negativePrompt:scene.negativePrompt,aspectRatio:working.aspectRatio,seed:scene.seed||hashString(`${working.id}|${scene.id}|${scene.sceneNumber}`),referenceImages:refs.images,referenceLabels:refs.labels})});const data=await response.json() as {image?:string;provider?:string;model?:string;seed?:number;referenceCount?:number;warning?:string;error?:string};if(!response.ok||!data.image)throw new Error(data.error||"Image generation failed");const done={...generating,image:data.image,provider:data.provider,model:data.model,seed:data.seed,referenceCount:data.referenceCount,status:"completed" as const};next={...next,images:next.images.map((item)=>item.id===scene.id?done:item),updatedAt:new Date().toISOString()};commit(next);if(data.warning)setNotice(data.warning);return next};
+  const generateOne=async(scene:CinematicImage)=>{setBusy(scene.id);setError("");try{await render(scene.id,project);setNotice(`Scene ${scene.sceneNumber} generated with continuity references.`)}catch(reason){const message=reason instanceof Error?reason.message:"Generation failed";patchScene(scene.id,{status:"failed",error:message});setError(message)}finally{setBusy("");setProgress("")}};
+  const generateSequence=async()=>{if(!project.images.length){setError("पहले continuity scenes plan करें।");return}setBusy("sequence");setError("");let working=project,count=0;try{for(const scene of [...working.images].sort((a,b)=>a.sceneNumber-b.sceneNumber)){if(working.images.find((item)=>item.id===scene.id)?.image)continue;working=await render(scene.id,working);count+=1}setNotice(`${count} remaining scene(s) strict order में generated.`)}catch(reason){setError(reason instanceof Error?reason.message:"Sequence stopped")}finally{setBusy("");setProgress("")}};
+  const downloadAll=async()=>{const ready=[...project.images].filter((item)=>item.image).sort((a,b)=>a.sceneNumber-b.sceneNumber);for(const image of ready){const a=document.createElement("a");a.href=image.image!;a.download=`${project.name}-scene-${String(image.sceneNumber).padStart(3,"0")}.jpg`;a.click();await new Promise((resolve)=>setTimeout(resolve,300))}};
 
-  const addCharacter=()=>patchProject({characters:[...project.characters,{id:uid(),name:`Character ${project.characters.length+1}`,role:"Main character",appearance:"",outfit:""}]});
-  const addLocation=()=>patchProject({locations:[...project.locations,{id:uid(),name:`Location ${project.locations.length+1}`,description:"",lighting:"Cinematic natural light"}]});
-
-  const updateCharacter=(id:string,patch:Partial<Character>)=>patchProject({characters:project.characters.map((item)=>item.id===id?{...item,...patch}:item)});
-  const updateLocation=(id:string,patch:Partial<Location>)=>patchProject({locations:project.locations.map((item)=>item.id===id?{...item,...patch}:item)});
-
-  const uploadCharacterReference=async(id:string,event:ChangeEvent<HTMLInputElement>)=>{
-    const file=event.target.files?.[0];if(!file)return;
-    try{updateCharacter(id,{referenceImage:await fileToDataUrl(file)});setNotice("Character reference photo saved for similarity.");}catch(reason){setError(reason instanceof Error?reason.message:"Reference upload failed")}
-  };
-  const uploadLocationReference=async(id:string,event:ChangeEvent<HTMLInputElement>)=>{
-    const file=event.target.files?.[0];if(!file)return;
-    try{updateLocation(id,{referenceImage:await fileToDataUrl(file)});setNotice("Location reference photo saved.");}catch(reason){setError(reason instanceof Error?reason.message:"Reference upload failed")}
-  };
-
-  const updateImage=(id:string,patch:Partial<CinematicImage>)=>patchProject({images:project.images.map((item)=>item.id===id?{...item,...patch}:item)});
-
-  const generateImage=async(image:CinematicImage)=>{
-    setBusy(image.id);setProgress(`Generating full cinematic image ${image.sceneNumber}…`);setError("");setNotice("");
-    updateImage(image.id,{status:"generating",error:undefined});
-    try{
-      const prompt=image.prompt||buildCinematicPrompt({scene:image.sourceText,style:project.visualStyle,aspectRatio:project.aspectRatio,characters:project.characters,locations:project.locations});
-      const referenceImages=[
-        ...project.characters.map((item)=>item.referenceImage).filter((value):value is string=>Boolean(value)),
-        ...project.locations.map((item)=>item.referenceImage).filter((value):value is string=>Boolean(value))
-      ].slice(0,4);
-      const response=await fetch("/api/generate",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({
-        prompt,
-        negativePrompt:image.negativePrompt,
-        aspectRatio:project.aspectRatio,
-        seed:image.seed||hashString(`${project.id}|${image.id}|${image.sceneNumber}`),
-        referenceImages
-      })});
-      const data=await response.json() as {image?:string;provider?:string;model?:string;seed?:number;warning?:string;error?:string};
-      if(!response.ok||!data.image)throw new Error(data.error||"Image generation failed");
-      updateImage(image.id,{image:data.image,provider:data.provider,model:data.model,seed:data.seed,status:"completed",prompt});
-      setNotice(data.warning?`Image ${image.sceneNumber} generated. ${data.warning}`:`Image ${image.sceneNumber} generated as one complete cinematic frame.`);
-    }catch(reason){
-      const message=reason instanceof Error?reason.message:"Image generation failed";
-      updateImage(image.id,{status:"failed",error:message});
-      setError(message);
-    }finally{setBusy("");setProgress("")}
-  };
-
-  const regeneratePrompts=()=>{
-    patchProject({images:project.images.map((image)=>({...image,prompt:buildCinematicPrompt({scene:image.sourceText,style:project.visualStyle,aspectRatio:project.aspectRatio,characters:project.characters,locations:project.locations})}))});
-    setNotice("All prompts refreshed with the current style, character and location references.");
-  };
-
-  return <main className="min-h-screen bg-[#080a0f] text-zinc-100">
-    <div className="mx-auto max-w-7xl space-y-5 px-4 py-6">
-      <section className="rounded-2xl border border-white/10 bg-[#0d1017] p-4">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-          <div>
-            <div className="flex items-center gap-2 text-lg font-bold"><BookOpen className="text-violet-400" size={19}/> Fantasy Cinematic Studio</div>
-            <p className="mt-1 text-sm text-zinc-500">Story → characters & locations → one complete cinematic painting per scene. No manga panels, no webtoon layout.</p>
-          </div>
-          <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
-            <div className="flex min-w-0 gap-2">
-              <select value={project.id} onChange={(e)=>setState((current)=>({...current,activeProjectId:e.target.value}))} className="min-w-0 flex-1 rounded-xl border border-white/10 bg-black/25 px-3 py-2 text-sm">
-                {state.projects.map((item)=><option key={item.id} value={item.id}>{item.name}</option>)}
-              </select>
-              <button onClick={createNewProject} className="whitespace-nowrap rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs font-bold text-emerald-200"><Plus className="mr-1 inline" size={13}/> New Project</button>
-            </div>
-            <input value={project.storyTitle} onChange={(e)=>patchProject({storyTitle:e.target.value})} placeholder="Story / Project title" className="rounded-xl border border-white/10 bg-black/25 px-3 py-2 text-sm"/>
-            <select value={project.visualStyle} onChange={(e)=>patchProject({visualStyle:e.target.value})} className="rounded-xl border border-white/10 bg-black/25 px-3 py-2 text-sm">
-              {stylePresets.map((item)=><option key={item}>{item}</option>)}
-            </select>
-            <select value={project.aspectRatio} onChange={(e)=>patchProject({aspectRatio:e.target.value})} className="rounded-xl border border-white/10 bg-black/25 px-3 py-2 text-sm">
-              {aspectRatios.map((item)=><option key={item}>{item}</option>)}
-            </select>
-          </div>
-        </div>
-        <div className="mt-4 flex gap-2 overflow-x-auto">{tabs.map(([id,label])=><button key={id} onClick={()=>setTab(id)} className={`whitespace-nowrap rounded-xl px-4 py-2 text-sm ${tab===id?"bg-violet-500 text-white":"bg-white/5 text-zinc-400"}`}>{label}</button>)}</div>
-      </section>
-
-      {progress&&<div className="rounded-2xl border border-violet-500/20 bg-violet-500/8 p-4 text-sm text-violet-200"><Loader2 className="mr-2 inline animate-spin" size={15}/>{progress}</div>}
-      {notice&&<div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/8 p-4 text-sm text-emerald-200">{notice}</div>}
-      {error&&<div className="rounded-2xl border border-red-500/20 bg-red-500/8 p-4 text-sm text-red-200">{error}</div>}
-
-      {tab==="story"&&<section className="rounded-2xl border border-white/10 bg-[#0d1017] p-5">
-        <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div><h2 className="font-bold">Full Story</h2><p className="text-sm text-zinc-500">StoryFrame वाला वही workspace layout है, लेकिन output अब हर scene की एक full cinematic painting होगी।</p></div>
-          <button onClick={buildScenes} className="rounded-xl bg-violet-500 px-4 py-3 text-sm font-bold"><Sparkles className="mr-1 inline" size={16}/> Build Cinematic Scenes</button>
-        </div>
-        <textarea value={project.story} onChange={(e)=>patchProject({story:e.target.value})} className="min-h-[420px] w-full rounded-xl border border-white/10 bg-black/25 p-4 text-sm leading-7 outline-none focus:border-violet-500/50" placeholder="Paste the full story here…"/>
-      </section>}
-
-      {tab==="characters"&&<section className="space-y-4">
-        <div className="flex justify-end"><button onClick={addCharacter} className="rounded-xl bg-violet-500 px-4 py-2 text-sm font-bold"><Plus className="mr-1 inline" size={15}/> Add Character</button></div>
-        <div className="grid gap-4 md:grid-cols-2">
-          {project.characters.length?project.characters.map((character)=><article key={character.id} className="rounded-2xl border border-white/10 bg-[#0d1017] p-4">
-            <div className="flex gap-4">
-              {character.referenceImage?<img src={character.referenceImage} alt="" className="h-32 w-32 rounded-xl object-cover"/>:<label className="grid h-32 w-32 cursor-pointer place-items-center rounded-xl bg-white/5 text-zinc-500"><Upload/><input type="file" accept="image/*" className="hidden" onChange={(e)=>void uploadCharacterReference(character.id,e)}/></label>}
-              <div className="min-w-0 flex-1 space-y-2">
-                <input value={character.name} onChange={(e)=>updateCharacter(character.id,{name:e.target.value})} className="w-full rounded-lg border border-white/10 bg-black/25 px-3 py-2 font-bold"/>
-                <input value={character.role} onChange={(e)=>updateCharacter(character.id,{role:e.target.value})} className="w-full rounded-lg border border-white/10 bg-black/25 px-3 py-2 text-sm" placeholder="Role"/>
-                <textarea value={character.appearance} onChange={(e)=>updateCharacter(character.id,{appearance:e.target.value})} className="min-h-20 w-full rounded-lg border border-white/10 bg-black/25 px-3 py-2 text-sm" placeholder="Face, hair, age look, body, identity details"/>
-                <input value={character.outfit} onChange={(e)=>updateCharacter(character.id,{outfit:e.target.value})} className="w-full rounded-lg border border-white/10 bg-black/25 px-3 py-2 text-sm" placeholder="Outfit"/>
-              </div>
-            </div>
-            <div className="mt-3 flex items-center justify-between gap-2 text-xs text-zinc-500"><span>Reference photo = highest similarity priority</span><label className="cursor-pointer text-violet-300">Replace photo<input type="file" accept="image/*" className="hidden" onChange={(e)=>void uploadCharacterReference(character.id,e)}/></label></div>
-          </article>):<div className="rounded-2xl border border-white/10 bg-[#0d1017] p-8 text-zinc-500">Add characters and upload reference photos for face/outfit similarity.</div>}
-        </div>
-      </section>}
-
-      {tab==="locations"&&<section className="space-y-4">
-        <div className="flex justify-end"><button onClick={addLocation} className="rounded-xl bg-violet-500 px-4 py-2 text-sm font-bold"><Plus className="mr-1 inline" size={15}/> Add Location</button></div>
-        <div className="grid gap-4 md:grid-cols-2">
-          {project.locations.length?project.locations.map((location)=><article key={location.id} className="rounded-2xl border border-white/10 bg-[#0d1017] p-4">
-            <div className="flex gap-4">
-              {location.referenceImage?<img src={location.referenceImage} alt="" className="h-32 w-32 rounded-xl object-cover"/>:<label className="grid h-32 w-32 cursor-pointer place-items-center rounded-xl bg-white/5 text-zinc-500"><MapPinned/><input type="file" accept="image/*" className="hidden" onChange={(e)=>void uploadLocationReference(location.id,e)}/></label>}
-              <div className="min-w-0 flex-1 space-y-2">
-                <input value={location.name} onChange={(e)=>updateLocation(location.id,{name:e.target.value})} className="w-full rounded-lg border border-white/10 bg-black/25 px-3 py-2 font-bold"/>
-                <textarea value={location.description} onChange={(e)=>updateLocation(location.id,{description:e.target.value})} className="min-h-24 w-full rounded-lg border border-white/10 bg-black/25 px-3 py-2 text-sm" placeholder="Architecture, environment, colors, props"/>
-                <input value={location.lighting} onChange={(e)=>updateLocation(location.id,{lighting:e.target.value})} className="w-full rounded-lg border border-white/10 bg-black/25 px-3 py-2 text-sm" placeholder="Lighting / mood"/>
-              </div>
-            </div>
-          </article>):<div className="rounded-2xl border border-white/10 bg-[#0d1017] p-8 text-zinc-500">Add recurring locations and optional reference photos.</div>}
-        </div>
-      </section>}
-
-      {tab==="images"&&<section className="space-y-4">
-        <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
-          <div><h2 className="font-bold">Cinematic Images</h2><p className="text-sm text-zinc-500">{project.images.length} planned · {completed} generated. Every card is one complete frame, never a panel sheet.</p></div>
-          <button onClick={regeneratePrompts} className="rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-sm">Refresh Prompts</button>
-        </div>
-        <div className="grid gap-5 lg:grid-cols-2">
-          {project.images.length?project.images.map((image)=><article key={image.id} className="overflow-hidden rounded-2xl border border-white/10 bg-[#0d1017]">
-            <div className="aspect-video bg-black/30">
-              {image.image?<img src={image.image} alt={image.title} className="h-full w-full object-cover"/>:<div className="grid h-full place-items-center text-zinc-600"><ImageIcon size={36}/></div>}
-            </div>
-            <div className="space-y-3 p-4">
-              <div className="flex items-start justify-between gap-3"><div><div className="text-xs font-bold uppercase tracking-widest text-violet-400">Scene {image.sceneNumber}</div><h3 className="font-bold">{image.title}</h3></div>{image.image&&<button onClick={()=>downloadImage(image.image!,`scene-${String(image.sceneNumber).padStart(3,"0")}.jpg`)} className="rounded-lg border border-white/10 p-2"><Download size={16}/></button>}</div>
-              <textarea value={image.prompt} onChange={(e)=>updateImage(image.id,{prompt:e.target.value})} className="min-h-36 w-full rounded-xl border border-white/10 bg-black/25 p-3 text-xs leading-5 text-zinc-300"/>
-              <button disabled={!!busy} onClick={()=>void generateImage(image)} className="w-full rounded-xl bg-violet-500 px-4 py-3 text-sm font-bold disabled:opacity-50">{busy===image.id?<Loader2 className="mr-1 inline animate-spin" size={16}/>:<Sparkles className="mr-1 inline" size={16}/>} {image.image?"Regenerate Full Image":"Generate Full Image"}</button>
-              {image.provider&&<div className="text-xs text-zinc-500">{image.provider} · {image.model||"image model"} · seed {image.seed}</div>}
-              {image.error&&<div className="text-xs text-red-300">{image.error}</div>}
-            </div>
-          </article>):<div className="rounded-2xl border border-white/10 bg-[#0d1017] p-8 text-zinc-500">Story tab से पहले cinematic scenes build करें।</div>}
-        </div>
-      </section>}
-
-      {tab==="export"&&<section className="rounded-2xl border border-white/10 bg-[#0d1017] p-5">
-        <div className="flex items-center gap-2 font-bold"><Download size={18} className="text-violet-400"/> Export</div>
-        <p className="mt-2 text-sm text-zinc-500">Generated images को individual full-resolution files के रूप में download करें। Manga page composer या panel stitching इस project में intentionally नहीं है।</p>
-        <div className="mt-5 grid gap-3 sm:grid-cols-3">
-          <div className="rounded-xl bg-white/5 p-4"><div className="text-xs text-zinc-500">Planned images</div><div className="mt-1 text-2xl font-black">{project.images.length}</div></div>
-          <div className="rounded-xl bg-white/5 p-4"><div className="text-xs text-zinc-500">Generated</div><div className="mt-1 text-2xl font-black">{completed}</div></div>
-          <div className="rounded-xl bg-white/5 p-4"><div className="text-xs text-zinc-500">Aspect ratio</div><div className="mt-1 text-2xl font-black">{project.aspectRatio}</div></div>
-        </div>
-      </section>}
-    </div>
-  </main>;
+  const tabs:[Tab,string][]=[["story","Story"],["characters","Characters"],["locations","Locations"],["scenes","Continuity Scenes"],["gallery","Gallery / Export"]];
+  return <main className="min-h-screen bg-slate-50 text-slate-900"><div className="mx-auto max-w-7xl space-y-5 px-4 py-6">
+    <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"><div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between"><div><div className="flex items-center gap-2 text-lg font-bold"><BookOpen className="text-violet-600" size={19}/> Fantasy Cinematic Continuity Studio</div><p className="mt-1 text-sm text-slate-500">Full-frame cinematic paintings with character, location, direction and previous-frame memory.</p></div><div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4"><div className="flex gap-2"><select disabled={!!busy} value={project.id} onChange={(e)=>setState((current)=>({...current,activeProjectId:e.target.value}))} className="min-w-0 flex-1 rounded-xl border border-slate-200 px-3 py-2 text-sm">{state.projects.map((item)=><option key={item.id} value={item.id}>{item.name}</option>)}</select><button disabled={!!busy} onClick={createNewProject} className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-700"><Plus className="mr-1 inline" size={13}/> New</button></div><input value={project.storyTitle} onChange={(e)=>patch({storyTitle:e.target.value})} placeholder="Project title" className="rounded-xl border border-slate-200 px-3 py-2 text-sm"/><select value={project.visualStyle} onChange={(e)=>patch({visualStyle:e.target.value})} className="rounded-xl border border-slate-200 px-3 py-2 text-sm">{STYLE_PRESETS.map((item)=><option key={item}>{item}</option>)}</select><select value={project.aspectRatio} onChange={(e)=>patch({aspectRatio:e.target.value})} className="rounded-xl border border-slate-200 px-3 py-2 text-sm">{ASPECT_RATIOS.map((item)=><option key={item}>{item}</option>)}</select></div></div><div className="mt-4 flex gap-2 overflow-x-auto">{tabs.map(([id,label])=><button key={id} disabled={!!busy} onClick={()=>setTab(id)} className={`whitespace-nowrap rounded-xl px-4 py-2 text-sm font-medium ${tab===id?"bg-violet-600 text-white":"bg-slate-100 text-slate-600"}`}>{label}</button>)}</div></section>
+    {progress&&<div className="rounded-2xl border border-violet-200 bg-violet-50 p-4 text-sm text-violet-800"><Loader2 className="mr-2 inline animate-spin" size={15}/>{progress}</div>}{notice&&<div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">{notice}</div>}{error&&<div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</div>}
+    {tab==="story"&&<StoryPanel project={project} busy={busy} onPatch={patch} onPlan={()=>void planStory()} onStyleReference={(e)=>void uploadStyle(e)}/>} {tab==="characters"&&<CharactersPanel characters={project.characters} busy={busy} onAdd={addCharacter} onUpdate={updateCharacter} onUpload={(id,e)=>void uploadCharacter(id,e)}/>} {tab==="locations"&&<LocationsPanel locations={project.locations} busy={busy} onAdd={addLocation} onUpdate={updateLocation} onUpload={(id,e)=>void uploadLocation(id,e)}/>} 
+    {tab==="scenes"&&<section className="space-y-4"><div className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:flex-row sm:items-center sm:justify-between"><div><div className="font-bold">Continuity Sequence</div><div className="text-sm text-slate-500">{project.images.length} planned · {completed} generated. Previous frame is passed forward automatically.</div></div><button disabled={!!busy||!project.images.length} onClick={()=>void generateSequence()} className="rounded-xl bg-violet-600 px-4 py-2 text-sm font-bold text-white disabled:opacity-50"><Sparkles className="mr-1 inline" size={15}/> Generate Continuity Sequence</button></div>{project.images.length?[...project.images].sort((a,b)=>a.sceneNumber-b.sceneNumber).map((scene,index)=>{const ordered=[...project.images].sort((a,b)=>a.sceneNumber-b.sceneNumber);return <SceneCard key={scene.id} scene={scene} previous={index?ordered[index-1]:undefined} characters={project.characters} locations={project.locations} busy={busy} onPatch={(value)=>patchScene(scene.id,value)} onToggleCharacter={(character,enabled)=>toggleCharacter(scene,character,enabled)} onPatchCharacter={(characterId,value)=>patchCharacterState(scene,characterId,value)} onGenerate={()=>void generateOne(scene)}/>;}):<div className="rounded-2xl border border-slate-200 bg-white p-10 text-center text-slate-500"><Users className="mx-auto mb-3"/>Story tab में continuity scenes plan करें।</div>}</section>}
+    {tab==="gallery"&&<GalleryPanel images={project.images} projectName={project.name} busy={busy} onDownloadAll={()=>void downloadAll()}/>} 
+  </div></main>;
 }
