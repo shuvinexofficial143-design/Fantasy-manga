@@ -37,14 +37,19 @@ export function ProjectProvider({children}:{children:React.ReactNode}){
   const [hydrated,setHydrated]=useState(false);
 
   useEffect(()=>{
-    try{
-      const raw=localStorage.getItem(STORAGE_KEY);
-      if(raw){
-        const parsed=JSON.parse(raw) as StudioState;
-        if(parsed.projects?.length)setState(parsed);
-      }
-    }catch{}
-    setHydrated(true);
+    let cancelled=false;
+    queueMicrotask(()=>{
+      if(cancelled)return;
+      try{
+        const raw=localStorage.getItem(STORAGE_KEY);
+        if(raw){
+          const parsed=JSON.parse(raw) as StudioState;
+          if(parsed.projects?.length)setState(parsed);
+        }
+      }catch{}
+      if(!cancelled)setHydrated(true);
+    });
+    return()=>{cancelled=true};
   },[]);
 
   useEffect(()=>{
