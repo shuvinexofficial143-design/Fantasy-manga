@@ -13,6 +13,14 @@ export function createProject(name="My Cinematic Project"):Project{
     aspectRatio:"16:9",
     worldNotes:"",
     continuityMode:"strict",
+    novelImport:{
+      novelTitle:"",
+      locked:false,
+      currentChapter:1,
+      autoGenerate:true,
+      chapters:[],
+      errorLog:[]
+    },
     characters:[],
     locations:[],
     images:[],

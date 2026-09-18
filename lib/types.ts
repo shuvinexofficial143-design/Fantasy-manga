@@ -30,9 +30,46 @@ export type SceneCharacterState={
   stateNotes:string;
 };
 
+export type NovelImportError={
+  id:string;
+  chapterNumber:number;
+  message:string;
+  attemptedUrl?:string;
+  statusCode?:number;
+  createdAt:string;
+};
+
+export type NovelChapter={
+  number:number;
+  title:string;
+  url:string;
+  sourceText:string;
+  nextUrl?:string;
+  summary?:string;
+  scannedAt:string;
+  analyzedAt?:string;
+  sceneIds:string[];
+  status:"scanned"|"analyzed"|"generated"|"error";
+  error?:string;
+};
+
+export type NovelImportState={
+  novelTitle:string;
+  locked:boolean;
+  sourceOrigin?:string;
+  firstChapterUrl?:string;
+  nextChapterUrl?:string;
+  chapterUrlTemplate?:string;
+  currentChapter:number;
+  autoGenerate:boolean;
+  chapters:NovelChapter[];
+  errorLog:NovelImportError[];
+};
+
 export type CinematicImage={
   id:string;
   sceneNumber:number;
+  chapterNumber?:number;
   title:string;
   sourceText:string;
   prompt:string;
@@ -64,6 +101,7 @@ export type Project={
   worldNotes:string;
   continuityMode:"strict"|"balanced";
   styleReferenceImage?:string;
+  novelImport?:NovelImportState;
   characters:Character[];
   locations:Location[];
   images:CinematicImage[];
