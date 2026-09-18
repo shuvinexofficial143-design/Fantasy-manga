@@ -153,6 +153,30 @@ function extractEmbeddedCandidates(html:string){
   return candidates;
 }
 
+function extractNetworkPayloadText(payload:string){
+  const candidates:Array<{text:string;priority:number}>=[];
+  try{
+    const parsed=JSON.parse(payload) as unknown;
+    const walk=(value:unknown,key="",depth=0)=>{
+      if(depth>18||value===null||value===undefined)return;
+      if(typeof value==="string"){
+        if(value.length<120)return;
+        const important=/(?:chapter|article|story|body|content|text|paragraph|novel|description)/i.test(key);
+        pushCandidate(candidates,value,important?220:45);
+        return;
+      }
+      if(Array.isArray(value)){for(const item of value)walk(item,key,depth+1);return}
+      if(typeof value==="object"){
+        for(const [childKey,child] of Object.entries(value as Record<string,unknown>))walk(child,childKey,depth+1);
+      }
+    };
+    walk(parsed);
+  }catch{
+    pushCandidate(candidates,payload,25);
+  }
+  return candidates.sort((a,b)=>(b.priority+proseScore(b.text)/10)-(a.priority+proseScore(a.text)/10))[0]?.text||"";
+}
+
 function extractChapterText(html:string){
   const candidates:Array<{text:string;priority:number}>=[];
   const cleaned=removeNoise(html);
@@ -243,21 +267,53 @@ async function renderPublicPage(initialUrl:string,lockedOrigin?:string){
   const browser=await puppeteer.launch({args:chromium.args,executablePath:await chromium.executablePath(),headless:true});
   try{
     const page=await browser.newPage();
+    const sourceHost=new URL(initialUrl).hostname.toLowerCase();
+    const rootDomain=sourceHost.split(".").slice(-2).join(".");
+    const networkBodies:string[]=[];
+    const pending=new Set<Promise<void>>();
+
     await page.setViewport({width:1280,height:900});
     await page.setUserAgent("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/136 Safari/537.36");
     await page.setRequestInterception(true);
+
     page.on("request",(request)=>{void (async()=>{
       const value=request.url();
       if(value.startsWith("data:")||value.startsWith("blob:")||value.startsWith("about:")){await request.continue().catch(()=>{});return}
       if(!/^https?:/i.test(value)){await request.abort().catch(()=>{});return}
       try{await validatePublicUrl(value);await request.continue().catch(()=>{})}catch{await request.abort().catch(()=>{})}
     })()});
+
+    page.on("response",(response)=>{
+      const task=(async()=>{
+        try{
+          const responseUrl=response.url();
+          if(!/^https?:/i.test(responseUrl))return;
+          const parsed=new URL(responseUrl);
+          const sameSite=parsed.hostname===sourceHost||parsed.hostname.endsWith("."+rootDomain)||sourceHost.endsWith("."+parsed.hostname);
+          const looksRelevant=/chapter|story|novel|read|content|book|episode/i.test(parsed.pathname+parsed.search);
+          if(!sameSite&&!looksRelevant)return;
+
+          const headers=response.headers();
+          const contentType=(headers["content-type"]||"").toLowerCase();
+          if(!contentType.includes("json")&&!contentType.includes("text")&&!contentType.includes("javascript"))return;
+          const length=Number(headers["content-length"]||0);
+          if(length>2_000_000)return;
+          const body=await response.text().catch(()=>"");
+          if(body.length>=120&&Buffer.byteLength(body,"utf8")<=2_000_000)networkBodies.push(body);
+        }catch{}
+      })();
+      pending.add(task);
+      void task.finally(()=>pending.delete(task));
+    });
+
     await page.goto(initialUrl,{waitUntil:"domcontentloaded",timeout:30_000});
-    await page.waitForNetworkIdle({idleTime:800,timeout:10_000}).catch(()=>{});
-    await new Promise((resolve)=>setTimeout(resolve,1200));
+    await page.waitForNetworkIdle({idleTime:800,timeout:12_000}).catch(()=>{});
+    await new Promise((resolve)=>setTimeout(resolve,1800));
+    if(pending.size)await Promise.allSettled([...pending]);
+
     const finalUrl=page.url();
     await validatePublicUrl(finalUrl,lockedOrigin);
-    return {html:await page.content(),finalUrl,title:await page.title()};
+    return {html:await page.content(),finalUrl,title:await page.title(),networkBodies:networkBodies.slice(0,40)};
   }finally{
     await browser.close().catch(()=>{});
   }
@@ -300,12 +356,19 @@ export async function POST(req:Request){
         html=rendered.html;
         title=extractTitle(html,chapterNumber)||rendered.title||title;
         text=extractChapterText(html);
+        if(text.length<120){
+          const networkCandidates=rendered.networkBodies
+            .map((body)=>extractNetworkPayloadText(body))
+            .filter((value)=>value.length>=120)
+            .sort((a,b)=>proseScore(b)-proseScore(a));
+          text=networkCandidates[0]||"";
+        }
       }catch(browserError){
         console.warn("Browser-render chapter fallback failed",browserError);
       }
     }
 
-    if(text.length<120)throw Object.assign(new Error("Chapter page opened, but readable chapter text was not found even after JavaScript rendering. The chapter may require login/payment or use protected/private data that this importer will not bypass."),{statusCode:422,attemptedUrl:effectiveUrl});
+    if(text.length<120)throw Object.assign(new Error("Chapter page opened, but readable chapter text was not found in HTML, JavaScript-rendered DOM, or the page's public text/JSON responses. The chapter may require login/payment or use protected/private data that this importer will not bypass."),{statusCode:422,attemptedUrl:effectiveUrl});
 
     const finalUrl=new URL(effectiveUrl);
     const nextUrl=await discoverNextChapter(html,effectiveUrl,chapterNumber+1,source.sourceOrigin||finalUrl.origin);
