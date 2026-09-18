@@ -88,3 +88,18 @@ Novel Import now supports three input paths:
 3. **Paste Chapter Text** — reliable fallback for sites that do not expose chapter text to server-side/public page requests. Pasted text goes directly to the same Vertex continuity analysis and image pipeline.
 
 Source locking is only applied after a successful URL-based chapter scan. Pasted text does not bypass or unlock a protected source.
+
+
+## Built-in source registry
+
+Novel Import includes a source registry with automatic URL detection.
+
+- **Wikisource** — supported through the official MediaWiki API.
+- **Generic public HTML/JSON websites** — conditional support when chapter text is publicly readable and automated access is permitted.
+- **Standard Ebooks** — conditional, depending on the public page/feed used.
+- **Project Gutenberg main website** — not scraped directly; automated access should use Project Gutenberg's approved robot/mirror workflows.
+- **Royal Road** — not automated by this importer.
+- **Inkitt** — not automated by this importer.
+- **NovelNow** — currently marked unsupported for URL import because its public responses do not expose readable chapter text to this importer.
+
+Unsupported sources can still be handled through the manual chapter-text input when the user has lawful access to the text.
