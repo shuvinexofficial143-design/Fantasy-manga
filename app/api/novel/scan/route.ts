@@ -1,6 +1,7 @@
 import {lookup} from "node:dns/promises";
 import {isIP} from "node:net";
 import {NextResponse} from "next/server";
+import {sourceForUrl} from "@/lib/novel-sources";
 
 export const runtime="nodejs";
 export const maxDuration=60;
@@ -257,6 +258,19 @@ function findChapterUrlOnPage(html:string,baseUrl:string,chapterNumber:number){
 }
 
 async function resolveChapterFromStoryPage(storyUrl:string,chapterNumber:number){
+  const profile=sourceForUrl(storyUrl);
+  if(profile?.status==="unsupported"){
+    throw Object.assign(new Error(profile.name+" is not available as an automated import source. "+profile.note),{statusCode:422,attemptedUrl:storyUrl});
+  }
+
+  if(profile?.id==="wikisource"){
+    const page=await fetchWikisourcePage(storyUrl);
+    const host=new URL(page.canonicalUrl).hostname;
+    const found=wikisourceChapterFromLinks(page.links,chapterNumber,host);
+    if(found)return found;
+    throw Object.assign(new Error("Chapter "+chapterNumber+" link was not found in this Wikisource page."),{statusCode:422,attemptedUrl:storyUrl});
+  }
+
   const story=await fetchPublicHtml(storyUrl);
   let found=findChapterUrlOnPage(story.html,story.finalUrl,chapterNumber);
   if(found)return found;
@@ -357,6 +371,60 @@ async function renderPublicPage(initialUrl:string,lockedOrigin?:string){
   }
 }
 
+
+type WikisourcePage={
+  title:string;
+  html:string;
+  text:string;
+  links:string[];
+  canonicalUrl:string;
+};
+
+async function fetchWikisourcePage(pageUrl:string):Promise<WikisourcePage>{
+  const input=await validatePublicUrl(pageUrl);
+  const host=input.hostname.toLowerCase();
+  if(!host.endsWith("wikisource.org"))throw new Error("Not a Wikisource URL.");
+
+  const match=input.pathname.match(/^\/wiki\/(.+)$/);
+  if(!match)throw Object.assign(new Error("Use a Wikisource /wiki/... page URL."),{statusCode:422,attemptedUrl:pageUrl});
+  const pageTitle=decodeURIComponent(match[1].replace(/_/g," "));
+
+  const api=new URL("https://"+host+"/w/api.php");
+  api.searchParams.set("action","parse");
+  api.searchParams.set("page",pageTitle);
+  api.searchParams.set("prop","text|displaytitle|links");
+  api.searchParams.set("format","json");
+  api.searchParams.set("formatversion","2");
+  api.searchParams.set("origin","*");
+
+  const response=await fetch(api,{headers:{"User-Agent":USER_AGENT,Accept:"application/json"},cache:"no-store"});
+  const payload=await response.json().catch(()=>null) as {
+    error?:{info?:string};
+    parse?:{title?:string;displaytitle?:string;text?:string;links?:Array<{title?:string}>};
+  }|null;
+
+  if(!response.ok||!payload?.parse){
+    throw Object.assign(new Error(payload?.error?.info||"Wikisource API could not load this page."),{statusCode:response.status||502,attemptedUrl:pageUrl});
+  }
+
+  const html=payload.parse.text||"";
+  const text=extractChapterText(html);
+  const links=(payload.parse.links||[]).map((item)=>item.title||"").filter(Boolean);
+  const title=stripMarkup(payload.parse.displaytitle||payload.parse.title||pageTitle)||pageTitle;
+  const canonicalUrl="https://"+host+"/wiki/"+encodeURIComponent((payload.parse.title||pageTitle).replace(/ /g,"_")).replace(/%2F/g,"/");
+
+  return {title,html,text,links,canonicalUrl};
+}
+
+function wikisourceChapterFromLinks(links:string[],chapterNumber:number,host:string){
+  const chapterPattern=new RegExp("(^|\\b)(chapter|chap|ch)\\s*0*"+chapterNumber+"(\\b|$)","i");
+  const fallbackPattern=new RegExp("(^|[/ _-])0*"+chapterNumber+"($|[/ _-])");
+  const title=links.find((item)=>chapterPattern.test(item))
+    ||links.find((item)=>fallbackPattern.test(item)&&/chapter|chap|ch/i.test(item));
+  if(!title)return undefined;
+  return "https://"+host+"/wiki/"+encodeURIComponent(title.replace(/ /g,"_")).replace(/%2F/g,"/");
+}
+
 function buildTemplate(urlValue:string,chapterNumber:number){
   const escaped=String(chapterNumber).replace(/[.*+?^$()|[\]\\{}]/g,"\\$&");
   const chapterPattern=new RegExp("(chapter|chap|ch)([-_/.=?]*?)"+escaped+"(?=\\D|$)","i");
@@ -389,6 +457,29 @@ export async function POST(req:Request){
       attemptedUrl=resolveRequestedUrl(chapterNumber,"",source);
     }
     const lockedOrigin=source.locked&&source.sourceOrigin?source.sourceOrigin:undefined;
+    const sourceProfile=sourceForUrl(attemptedUrl);
+
+    if(sourceProfile?.status==="unsupported"){
+      throw Object.assign(new Error(sourceProfile.name+" is not available as an automated import source. "+sourceProfile.note),{statusCode:422,attemptedUrl});
+    }
+
+    if(sourceProfile?.id==="wikisource"){
+      const page=await fetchWikisourcePage(attemptedUrl);
+      if(page.text.length<120)throw Object.assign(new Error("Wikisource page loaded, but no readable chapter text was found."),{statusCode:422,attemptedUrl:page.canonicalUrl});
+      const finalUrl=new URL(page.canonicalUrl);
+      const nextUrl=wikisourceChapterFromLinks(page.links,chapterNumber+1,finalUrl.hostname);
+      return NextResponse.json({
+        chapter:{number:chapterNumber,title:page.title,url:page.canonicalUrl,sourceText:page.text,nextUrl},
+        source:{
+          locked:true,
+          sourceOrigin:source.sourceOrigin||finalUrl.origin,
+          firstChapterUrl:source.firstChapterUrl||page.canonicalUrl,
+          nextChapterUrl:nextUrl,
+          chapterUrlTemplate:undefined
+        }
+      });
+    }
+
     const fetched=await fetchPublicHtml(attemptedUrl,lockedOrigin);
     let effectiveUrl=fetched.finalUrl;
     let html=fetched.html;
