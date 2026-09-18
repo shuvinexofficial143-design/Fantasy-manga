@@ -3,6 +3,7 @@ import {isIP} from "node:net";
 import {NextResponse} from "next/server";
 
 export const runtime="nodejs";
+export const maxDuration=60;
 
 type SourceLock={locked?:boolean;sourceOrigin?:string;firstChapterUrl?:string;nextChapterUrl?:string;chapterUrlTemplate?:string};
 type Body={novelTitle?:unknown;chapterNumber?:unknown;chapterUrl?:unknown;source?:unknown};
@@ -236,6 +237,32 @@ async function discoverNextChapter(html:string,currentUrl:string,nextChapterNumb
     return undefined;
   }
 }
+
+async function renderPublicPage(initialUrl:string,lockedOrigin?:string){
+  const [{default:chromium},{default:puppeteer}]=await Promise.all([import("@sparticuz/chromium"),import("puppeteer-core")]);
+  const browser=await puppeteer.launch({args:chromium.args,executablePath:await chromium.executablePath(),headless:true});
+  try{
+    const page=await browser.newPage();
+    await page.setViewport({width:1280,height:900});
+    await page.setUserAgent("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/136 Safari/537.36");
+    await page.setRequestInterception(true);
+    page.on("request",(request)=>{void (async()=>{
+      const value=request.url();
+      if(value.startsWith("data:")||value.startsWith("blob:")||value.startsWith("about:")){await request.continue().catch(()=>{});return}
+      if(!/^https?:/i.test(value)){await request.abort().catch(()=>{});return}
+      try{await validatePublicUrl(value);await request.continue().catch(()=>{})}catch{await request.abort().catch(()=>{})}
+    })()});
+    await page.goto(initialUrl,{waitUntil:"domcontentloaded",timeout:30_000});
+    await page.waitForNetworkIdle({idleTime:800,timeout:10_000}).catch(()=>{});
+    await new Promise((resolve)=>setTimeout(resolve,1200));
+    const finalUrl=page.url();
+    await validatePublicUrl(finalUrl,lockedOrigin);
+    return {html:await page.content(),finalUrl,title:await page.title()};
+  }finally{
+    await browser.close().catch(()=>{});
+  }
+}
+
 function buildTemplate(urlValue:string,chapterNumber:number){
   const escaped=String(chapterNumber).replace(/[.*+?^$()|[\]\\{}]/g,"\\$&");
   const chapterPattern=new RegExp("(chapter|chap|ch)([-_/.=?]*?)"+escaped+"(?=\\D|$)","i");
@@ -259,11 +286,31 @@ export async function POST(req:Request){
   try{
     const body=await req.json() as Body,chapterNumber=Math.max(1,Math.trunc(Number(body.chapterNumber)||1)),explicitUrl=stringValue(body.chapterUrl),source=(body.source&&typeof body.source==="object"?body.source:{}) as SourceLock;
     attemptedUrl=resolveRequestedUrl(chapterNumber,explicitUrl,source);
-    const lockedOrigin=source.locked&&source.sourceOrigin?source.sourceOrigin:undefined,fetched=await fetchPublicHtml(attemptedUrl,lockedOrigin),finalUrl=new URL(fetched.finalUrl);
-    const text=fetched.contentType.includes("text/plain")?fetched.html.trim():extractChapterText(fetched.html);
-    if(text.length<120)throw Object.assign(new Error("Chapter page opened, but readable chapter text was not found in visible HTML or embedded page data. The site may load the chapter through a private client API or protect the text."),{statusCode:422,attemptedUrl:fetched.finalUrl});
-    const nextUrl=fetched.contentType.includes("text/html")?await discoverNextChapter(fetched.html,fetched.finalUrl,chapterNumber+1,source.sourceOrigin||finalUrl.origin):undefined,chapterUrlTemplate=source.chapterUrlTemplate||buildTemplate(fetched.finalUrl,chapterNumber);
-    return NextResponse.json({chapter:{number:chapterNumber,title:fetched.contentType.includes("text/html")?extractTitle(fetched.html,chapterNumber):"Chapter "+chapterNumber,url:fetched.finalUrl,sourceText:text,nextUrl},source:{locked:true,sourceOrigin:source.sourceOrigin||finalUrl.origin,firstChapterUrl:source.firstChapterUrl||fetched.finalUrl,nextChapterUrl:nextUrl,chapterUrlTemplate}});
+    const lockedOrigin=source.locked&&source.sourceOrigin?source.sourceOrigin:undefined;
+    const fetched=await fetchPublicHtml(attemptedUrl,lockedOrigin);
+    let effectiveUrl=fetched.finalUrl;
+    let html=fetched.html;
+    let title=fetched.contentType.includes("text/html")?extractTitle(html,chapterNumber):"Chapter "+chapterNumber;
+    let text=fetched.contentType.includes("text/plain")?html.trim():extractChapterText(html);
+
+    if(text.length<120&&fetched.contentType.includes("text/html")){
+      try{
+        const rendered=await renderPublicPage(fetched.finalUrl,lockedOrigin);
+        effectiveUrl=rendered.finalUrl;
+        html=rendered.html;
+        title=extractTitle(html,chapterNumber)||rendered.title||title;
+        text=extractChapterText(html);
+      }catch(browserError){
+        console.warn("Browser-render chapter fallback failed",browserError);
+      }
+    }
+
+    if(text.length<120)throw Object.assign(new Error("Chapter page opened, but readable chapter text was not found even after JavaScript rendering. The chapter may require login/payment or use protected/private data that this importer will not bypass."),{statusCode:422,attemptedUrl:effectiveUrl});
+
+    const finalUrl=new URL(effectiveUrl);
+    const nextUrl=await discoverNextChapter(html,effectiveUrl,chapterNumber+1,source.sourceOrigin||finalUrl.origin);
+    const chapterUrlTemplate=source.chapterUrlTemplate||buildTemplate(effectiveUrl,chapterNumber);
+    return NextResponse.json({chapter:{number:chapterNumber,title,url:effectiveUrl,sourceText:text,nextUrl},source:{locked:true,sourceOrigin:source.sourceOrigin||finalUrl.origin,firstChapterUrl:source.firstChapterUrl||effectiveUrl,nextChapterUrl:nextUrl,chapterUrlTemplate}});
   }catch(error){
     const value=error as Error&{statusCode?:number;attemptedUrl?:string},status=value.statusCode&&value.statusCode>=400&&value.statusCode<600?value.statusCode:502;
     return NextResponse.json({error:value.message||"Chapter scan failed.",attemptedUrl:value.attemptedUrl||attemptedUrl,statusCode:value.statusCode},{status});
