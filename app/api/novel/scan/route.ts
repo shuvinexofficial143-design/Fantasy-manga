@@ -70,26 +70,171 @@ function stripMarkup(value:string){
   return decodeEntities(value.replace(/<br\s*\/?\s*>/gi,"\n").replace(/<\/(p|div|section|article|li|h[1-6]|blockquote)>/gi,"\n").replace(/<[^>]+>/g," ")).replace(/[ \t]+/g," ").replace(/\n[ \t]+/g,"\n").replace(/\n{3,}/g,"\n\n").trim();
 }
 function removeNoise(html:string){return html.replace(/<!--[\s\S]*?-->/g," ").replace(/<(script|style|noscript|svg|nav|header|footer|aside|form|button)[^>]*>[\s\S]*?<\/\1>/gi," ")}
-function extractChapterText(html:string){
-  const cleaned=removeNoise(html),candidates:string[]=[];
-  for(const regex of [/<article\b[^>]*>([\s\S]*?)<\/article>/gi,/<main\b[^>]*>([\s\S]*?)<\/main>/gi,/<(?:div|section)\b[^>]*(?:id|class)\s*=\s*["'][^"']*(?:chapter[-_ ]?(?:content|text)|reading[-_ ]?content|entry[-_ ]?content|post[-_ ]?content|novel[-_ ]?content|chapter-content)[^"']*["'][^>]*>([\s\S]*?)<\/(?:div|section)>/gi]){
-    let match:RegExpExecArray|null;while((match=regex.exec(cleaned)))candidates.push(stripMarkup(match[1]));
+
+function decodeScriptString(value:string){
+  try{
+    const parsed=JSON.parse("\""+value+"\"");
+    if(typeof parsed==="string")return parsed;
+  }catch{}
+  return value
+    .replace(/\\u003c/gi,"<")
+    .replace(/\\u003e/gi,">")
+    .replace(/\\u0026/gi,"&")
+    .replace(/\\u002f/gi,"/")
+    .replace(/\\u0022/gi,"\"")
+    .replace(/\\u0027/gi,"'")
+    .replace(/\\n/g,"\n")
+    .replace(/\\r/g,"\n")
+    .replace(/\\t/g," ")
+    .replace(/\\\//g,"/")
+    .replace(/\\"/g,"\"");
+}
+
+function proseScore(value:string){
+  const words=value.split(/\s+/).filter(Boolean).length;
+  const sentences=(value.match(/[.!?]["'”’)]?(?:\s|$)/g)||[]).length;
+  const codeHits=(value.match(/\b(?:function|const|let|var|webpack|__next|classname|javascript|stylesheet)\b/gi)||[]).length;
+  const syntaxHits=(value.match(/[{}[\];=]/g)||[]).length;
+  return words+sentences*5+Math.min(value.length/25,500)-codeHits*90-syntaxHits*0.6;
+}
+
+function pushCandidate(candidates:Array<{text:string;priority:number}>,raw:string,priority:number){
+  const text=stripMarkup(decodeScriptString(raw))
+    .replace(/\\+"/g,"\"")
+    .replace(/\s+\n/g,"\n")
+    .replace(/\n\s+/g,"\n")
+    .trim();
+  if(text.length>=120&&proseScore(text)>40)candidates.push({text,priority});
+}
+
+function extractEmbeddedCandidates(html:string){
+  const candidates:Array<{text:string;priority:number}>=[];
+  const scripts=[...html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/gi)];
+
+  for(const match of scripts){
+    const attrs=match[1]||"",script=match[2]||"";
+    const isStructured=/__NEXT_DATA__|application\/(?:ld\+)?json/i.test(attrs);
+
+    if(isStructured){
+      try{
+        const parsed=JSON.parse(decodeEntities(script.trim()));
+        const walk=(value:unknown,key="",depth=0)=>{
+          if(depth>14||value===null||value===undefined)return;
+          if(typeof value==="string"){
+            const important=/(?:chapter|article|story|body|content|text)/i.test(key);
+            if(value.length>=120)pushCandidate(candidates,value,important?120:35);
+            return;
+          }
+          if(Array.isArray(value)){for(const item of value)walk(item,key,depth+1);return}
+          if(typeof value==="object"){
+            for(const [childKey,child] of Object.entries(value as Record<string,unknown>))walk(child,childKey,depth+1);
+          }
+        };
+        walk(parsed);
+      }catch{}
+    }
+
+    const fields=/"(?:articleBody|chapterContent|chapter_content|chapterText|chapter_text|storyContent|story_content|content|body|text)"\s*:\s*"((?:\\.|[^"\\]){120,})"/gi;
+    let field:RegExpExecArray|null;
+    while((field=fields.exec(script)))pushCandidate(candidates,field[1],150);
+
+    const quoted=/"((?:\\.|[^"\\]){220,})"/g;
+    let quote:RegExpExecArray|null,count=0;
+    while((quote=quoted.exec(script))&&count<80){
+      pushCandidate(candidates,quote[1],30);
+      count+=1;
+    }
+
+    const decoded=decodeScriptString(script);
+    if(decoded!==script&&decoded.length>=120)pushCandidate(candidates,decoded,20);
   }
-  candidates.push(stripMarkup(cleaned));
-  return candidates.map((value)=>value.trim()).filter((value)=>value.length>=120).sort((a,b)=>b.length-a.length)[0]||"";
+
+  return candidates;
+}
+
+function extractChapterText(html:string){
+  const candidates:Array<{text:string;priority:number}>=[];
+  const cleaned=removeNoise(html);
+  for(const regex of [
+    /<article\b[^>]*>([\s\S]*?)<\/article>/gi,
+    /<main\b[^>]*>([\s\S]*?)<\/main>/gi,
+    /<(?:div|section)\b[^>]*(?:id|class)\s*=\s*["'][^"']*(?:chapter[-_ ]?(?:content|text)|reading[-_ ]?content|entry[-_ ]?content|post[-_ ]?content|novel[-_ ]?content|chapter-content)[^"']*["'][^>]*>([\s\S]*?)<\/(?:div|section)>/gi
+  ]){
+    let match:RegExpExecArray|null;
+    while((match=regex.exec(cleaned)))pushCandidate(candidates,match[1],180);
+  }
+
+  pushCandidate(candidates,cleaned,5);
+  candidates.push(...extractEmbeddedCandidates(html));
+
+  return candidates
+    .filter((item)=>item.text.length>=120)
+    .sort((a,b)=>(b.priority+proseScore(b.text)/10)-(a.priority+proseScore(a.text)/10))[0]?.text||"";
 }
 function extractTitle(html:string,chapterNumber:number){const h1=html.match(/<h1\b[^>]*>([\s\S]*?)<\/h1>/i)?.[1],title=html.match(/<title\b[^>]*>([\s\S]*?)<\/title>/i)?.[1];return stripMarkup(h1||title||"")||"Chapter "+chapterNumber}
 function safeSameOriginLink(href:string,baseUrl:string){try{const target=new URL(href,baseUrl),base=new URL(baseUrl);return target.origin===base.origin?target.toString():undefined}catch{return undefined}}
-function extractNextUrl(html:string,baseUrl:string){
+
+function extractChapterUrlFromEmbedded(html:string,baseUrl:string,chapterNumber:number){
+  const decoded=decodeScriptString(html)
+    .replace(/\\u002F/gi,"/")
+    .replace(/\\\//g,"/");
+  const needle=new RegExp("Chapter[-_ ]?"+chapterNumber+"(?:_|[-/])","i");
+
+  for(const match of decoded.matchAll(/["']([^"']{1,1200})["']/g)){
+    const raw=match[1];
+    if(!needle.test(raw))continue;
+    const url=safeSameOriginLink(raw,baseUrl);
+    if(url)return url;
+  }
+
+  const pathPattern=new RegExp("((?:https?:\\/\\/[^\\s\"'<>]+)?\\/[^\\s\"'<>]*Chapter[-_ ]?"+chapterNumber+"_[A-Za-z0-9_-]+)","i");
+  const direct=decoded.match(pathPattern)?.[1];
+  return direct?safeSameOriginLink(direct,baseUrl):undefined;
+}
+
+function extractNextUrl(html:string,baseUrl:string,nextChapterNumber:number){
   const candidates:Array<{url:string;score:number}>=[];
   for(const match of html.matchAll(/<a\b([^>]*)>([\s\S]*?)<\/a>/gi)){
     const attrs=match[1],href=attrs.match(/href\s*=\s*["']([^"']+)["']/i)?.[1];if(!href)continue;
     const url=safeSameOriginLink(href,baseUrl);if(!url)continue;
     const text=stripMarkup(match[2]).toLowerCase(),rel=attrs.match(/rel\s*=\s*["']([^"']+)["']/i)?.[1]?.toLowerCase()||"";
-    let score=0;if(/\bnext\b/.test(rel))score+=100;if(/next\s*chapter|chapter\s*next|next\s*[›»→]/i.test(text))score+=80;else if(/^next$/i.test(text))score+=45;
+    let score=0;
+    if(/\bnext\b/.test(rel))score+=100;
+    if(/next\s*chapter|chapter\s*next|next\s*[›»→]/i.test(text))score+=80;
+    else if(/^next$/i.test(text))score+=45;
+    if(new RegExp("chapter[-_ ]?0*"+nextChapterNumber+"(?:\\D|$)","i").test(url))score+=70;
     if(score)candidates.push({url,score});
   }
-  return candidates.sort((a,b)=>b.score-a.score)[0]?.url;
+  const anchor=candidates.sort((a,b)=>b.score-a.score)[0]?.url;
+  return anchor||extractChapterUrlFromEmbedded(html,baseUrl,nextChapterNumber);
+}
+
+function storyIndexUrl(chapterUrl:string){
+  try{
+    const url=new URL(chapterUrl);
+    const match=url.pathname.match(/^(.*?\/story\/[^/]+)\/Chapter[-_ ][^/]+$/i)||url.pathname.match(/^(.*?\/story\/[^/]+)\/Chapter[^/]+$/i);
+    if(!match)return undefined;
+    url.pathname=match[1];
+    url.search="";
+    url.hash="";
+    return url.toString();
+  }catch{return undefined}
+}
+
+async function discoverNextChapter(html:string,currentUrl:string,nextChapterNumber:number,lockedOrigin?:string){
+  const direct=extractNextUrl(html,currentUrl,nextChapterNumber);
+  if(direct)return direct;
+
+  const indexUrl=storyIndexUrl(currentUrl);
+  if(!indexUrl||indexUrl===currentUrl)return undefined;
+
+  try{
+    const index=await fetchPublicHtml(indexUrl,lockedOrigin||new URL(currentUrl).origin);
+    return extractNextUrl(index.html,index.finalUrl,nextChapterNumber)
+      ||extractChapterUrlFromEmbedded(index.html,index.finalUrl,nextChapterNumber);
+  }catch{
+    return undefined;
+  }
 }
 function buildTemplate(urlValue:string,chapterNumber:number){
   const escaped=String(chapterNumber).replace(/[.*+?^$()|[\]\\{}]/g,"\\$&");
@@ -116,8 +261,8 @@ export async function POST(req:Request){
     attemptedUrl=resolveRequestedUrl(chapterNumber,explicitUrl,source);
     const lockedOrigin=source.locked&&source.sourceOrigin?source.sourceOrigin:undefined,fetched=await fetchPublicHtml(attemptedUrl,lockedOrigin),finalUrl=new URL(fetched.finalUrl);
     const text=fetched.contentType.includes("text/plain")?fetched.html.trim():extractChapterText(fetched.html);
-    if(text.length<120)throw Object.assign(new Error("Chapter text could not be extracted. The site layout may be unsupported or the chapter may be protected."),{statusCode:422,attemptedUrl:fetched.finalUrl});
-    const nextUrl=fetched.contentType.includes("text/html")?extractNextUrl(fetched.html,fetched.finalUrl):undefined,chapterUrlTemplate=source.chapterUrlTemplate||buildTemplate(fetched.finalUrl,chapterNumber);
+    if(text.length<120)throw Object.assign(new Error("Chapter page opened, but readable chapter text was not found in visible HTML or embedded page data. The site may load the chapter through a private client API or protect the text."),{statusCode:422,attemptedUrl:fetched.finalUrl});
+    const nextUrl=fetched.contentType.includes("text/html")?await discoverNextChapter(fetched.html,fetched.finalUrl,chapterNumber+1,source.sourceOrigin||finalUrl.origin):undefined,chapterUrlTemplate=source.chapterUrlTemplate||buildTemplate(fetched.finalUrl,chapterNumber);
     return NextResponse.json({chapter:{number:chapterNumber,title:fetched.contentType.includes("text/html")?extractTitle(fetched.html,chapterNumber):"Chapter "+chapterNumber,url:fetched.finalUrl,sourceText:text,nextUrl},source:{locked:true,sourceOrigin:source.sourceOrigin||finalUrl.origin,firstChapterUrl:source.firstChapterUrl||fetched.finalUrl,nextChapterUrl:nextUrl,chapterUrlTemplate}});
   }catch(error){
     const value=error as Error&{statusCode?:number;attemptedUrl?:string},status=value.statusCode&&value.statusCode>=400&&value.statusCode<600?value.statusCode:502;
