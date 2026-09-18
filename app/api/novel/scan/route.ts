@@ -365,7 +365,47 @@ async function renderPublicPage(initialUrl:string,lockedOrigin?:string){
 
     const finalUrl=page.url();
     await validatePublicUrl(finalUrl,lockedOrigin);
-    return {html:await page.content(),finalUrl,title:await page.title(),networkBodies:networkBodies.slice(0,40)};
+    const visibleText=await page.evaluate(()=>{
+      const normalize=(value:string)=>value
+        .replace(/\u00a0/g," ")
+        .replace(/[ \t]+/g," ")
+        .replace(/\n[ \t]+/g,"\n")
+        .replace(/\n{3,}/g,"\n\n")
+        .trim();
+      const isVisible=(element:Element)=>{
+        const node=element as HTMLElement;
+        const style=getComputedStyle(node);
+        const rect=node.getBoundingClientRect();
+        return style.display!=="none"&&style.visibility!=="hidden"&&style.opacity!=="0"&&rect.width>0&&rect.height>0;
+      };
+      const candidates:string[]=[];
+      const selectors=[
+        "article",
+        "main",
+        "[itemprop='articleBody']",
+        "[class*='chapter'][class*='content']",
+        "[id*='chapter'][id*='content']",
+        "[class*='reader'][class*='content']",
+        "[class*='reading'][class*='content']",
+        "[class*='novel'][class*='content']",
+        "[class*='story'][class*='content']"
+      ];
+      for(const selector of selectors){
+        for(const element of document.querySelectorAll(selector)){
+          if(!isVisible(element))continue;
+          const text=normalize((element as HTMLElement).innerText||"");
+          if(text.length>=120)candidates.push(text);
+        }
+      }
+      const paragraphs=[...document.querySelectorAll("p,blockquote")]
+        .filter(isVisible)
+        .map((element)=>normalize((element as HTMLElement).innerText||""))
+        .filter((value)=>value.length>=20);
+      const paragraphText=paragraphs.join("\n\n");
+      if(paragraphText.length>=120)candidates.push(paragraphText);
+      return candidates.sort((a,b)=>b.length-a.length)[0]||"";
+    }).catch(()=>"");
+    return {html:await page.content(),finalUrl,title:await page.title(),visibleText,networkBodies:networkBodies.slice(0,40)};
   }finally{
     await browser.close().catch(()=>{});
   }
@@ -492,14 +532,14 @@ export async function POST(req:Request){
         effectiveUrl=rendered.finalUrl;
         html=rendered.html;
         title=extractTitle(html,chapterNumber)||rendered.title||title;
-        text=extractChapterText(html);
-        if(text.length<120){
-          const networkCandidates=rendered.networkBodies
-            .map((body)=>extractNetworkPayloadText(body))
-            .filter((value)=>value.length>=120)
-            .sort((a,b)=>proseScore(b)-proseScore(a));
-          text=networkCandidates[0]||"";
-        }
+        const renderedCandidates=[
+          extractChapterText(html),
+          rendered.visibleText,
+          ...rendered.networkBodies.map((body)=>extractNetworkPayloadText(body))
+        ]
+          .filter((value)=>value.length>=120)
+          .sort((a,b)=>proseScore(b)-proseScore(a));
+        text=renderedCandidates[0]||"";
       }catch(browserError){
         console.warn("Browser-render chapter fallback failed",browserError);
       }
