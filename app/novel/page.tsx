@@ -4,6 +4,7 @@ import {useMemo,useState} from "react";
 import {AlertTriangle,BookOpenCheck,ExternalLink,Globe2,Loader2,Lock,LockOpen,Play,RefreshCw,ScanSearch,Sparkles} from "lucide-react";
 import {buildCinematicPrompt,hashString} from "@/lib/cinematic";
 import {createImage} from "@/lib/default-project";
+import {NOVEL_SOURCES,sourceForUrl} from "@/lib/novel-sources";
 import type {Character,CinematicImage,Location,NovelChapter,NovelImportError,NovelImportState,Project,SceneCharacterState} from "@/lib/types";
 import {useProject} from "@/components/project-provider";
 
@@ -93,6 +94,7 @@ export default function NovelImportPage(){
   const [error,setError]=useState("");
 
   const latestChapter=useMemo(()=>[...novel.chapters].sort((a,b)=>b.number-a.number)[0],[novel.chapters]);
+  const detectedSource=useMemo(()=>sourceForUrl(manualUrl.trim()||storyPageUrl.trim()),[manualUrl,storyPageUrl]);
   const commit=(next:Project)=>setState((current)=>({...current,projects:current.projects.map((item)=>item.id===next.id?next:item)}));
   const patchImport=(value:Partial<NovelImportState>)=>commit({...project,novelImport:{...novel,...value},updatedAt:new Date().toISOString()});
 
@@ -447,6 +449,29 @@ export default function NovelImportPage(){
         <div><div className="text-xs font-bold uppercase tracking-wider text-emerald-700">Locked website</div><div className="mt-1 break-all font-semibold">{novel.sourceOrigin}</div></div>
         <div><div className="text-xs font-bold uppercase tracking-wider text-emerald-700">Next chapter source</div><div className="mt-1 break-all text-xs">{novel.nextChapterUrl||novel.chapterUrlTemplate||"Next URL pattern not detected — manual URL may be needed."}</div></div>
       </div>}
+    </section>
+
+    <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+      <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
+        <div>
+          <h2 className="font-black">Built-in Import Sources</h2>
+          <p className="mt-1 text-sm text-slate-500">URL डालते ही source auto-detect होता है। Unsupported sources को importer जानबूझकर try नहीं करेगा.</p>
+        </div>
+        {detectedSource&&<div className={"rounded-full px-3 py-1.5 text-xs font-bold "+(detectedSource.status==="supported"?"bg-emerald-50 text-emerald-700":detectedSource.status==="conditional"?"bg-amber-50 text-amber-700":"bg-red-50 text-red-700")}>
+          Detected: {detectedSource.name} · {detectedSource.status}
+        </div>}
+      </div>
+      <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+        {NOVEL_SOURCES.map((source)=><div key={source.id} className="rounded-xl border border-slate-200 p-4">
+          <div className="flex items-center justify-between gap-3">
+            <div className="font-bold">{source.name}</div>
+            <span className={"rounded-full px-2.5 py-1 text-[10px] font-black uppercase "+(source.status==="supported"?"bg-emerald-50 text-emerald-700":source.status==="conditional"?"bg-amber-50 text-amber-700":"bg-red-50 text-red-700")}>{source.status}</span>
+          </div>
+          <div className="mt-1 text-xs font-semibold text-violet-700">{source.method}</div>
+          <p className="mt-2 text-xs leading-5 text-slate-500">{source.note}</p>
+          {source.domains.length>0&&<div className="mt-2 text-[11px] text-slate-400">{source.domains.join(", ")}</div>}
+        </div>)}
+      </div>
     </section>
 
     {progress&&<div className="rounded-2xl border border-violet-200 bg-violet-50 p-4 text-sm text-violet-800"><Loader2 className="mr-2 inline animate-spin" size={16}/>{progress}</div>}
