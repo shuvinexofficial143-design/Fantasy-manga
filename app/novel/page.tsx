@@ -5,6 +5,7 @@ import {AlertTriangle,BookOpenCheck,ExternalLink,Globe2,Loader2,Lock,LockOpen,Pl
 import {buildCinematicPrompt,hashString} from "@/lib/cinematic";
 import {createImage} from "@/lib/default-project";
 import {NOVEL_SOURCES,sourceForUrl} from "@/lib/novel-sources";
+import {replaceChapterScenes} from "@/lib/novel-workflow";
 import type {Character,CinematicImage,Location,NovelChapter,NovelImportError,NovelImportState,Project,SceneCharacterState} from "@/lib/types";
 import {useProject} from "@/components/project-provider";
 
@@ -173,7 +174,8 @@ export default function NovelImportPage(){
           sourceOrigin:current.sourceOrigin,
           firstChapterUrl:current.firstChapterUrl,
           nextChapterUrl:current.nextChapterUrl,
-          chapterUrlTemplate:current.chapterUrlTemplate
+          chapterUrlTemplate:current.chapterUrlTemplate,
+          lastChapterNumber:current.currentChapter
         }
       })});
       const scan=await scanResponse.json() as {
@@ -256,7 +258,7 @@ export default function NovelImportPage(){
         error:undefined
       };
       const analyzedState:NovelImportState={...scannedState,chapters:upsertChapter(scannedState.chapters,analyzedChapter)};
-      working={...working,characters,locations,images:[...retained,...newScenes],novelImport:analyzedState,updatedAt:new Date().toISOString()};
+      working={...working,characters,locations,images:replaceChapterScenes(working.images,oldIds,newScenes),novelImport:analyzedState,updatedAt:new Date().toISOString()};
       commit(working);
       setManualUrl("");
       setStoryPageUrl("");
@@ -349,7 +351,7 @@ export default function NovelImportPage(){
         error:undefined
       };
       const analyzedState:NovelImportState={...scannedState,chapters:upsertChapter(scannedState.chapters,analyzedChapter)};
-      working={...working,characters,locations,images:[...retained,...newScenes],novelImport:analyzedState,updatedAt:new Date().toISOString()};
+      working={...working,characters,locations,images:replaceChapterScenes(working.images,oldIds,newScenes),novelImport:analyzedState,updatedAt:new Date().toISOString()};
       commit(working);
       setManualText("");
 

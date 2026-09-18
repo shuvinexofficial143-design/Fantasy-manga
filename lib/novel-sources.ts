@@ -27,6 +27,14 @@ export const NOVEL_SOURCES:NovelSourceProfile[]=[
     note:"Works when the site exposes readable public chapter text and permits automated access."
   },
   {
+    id:"goodnovel",
+    name:"GoodNovel",
+    domains:["goodnovel.com"],
+    status:"conditional",
+    method:"Public chapter HTML + embedded chapter state",
+    note:"Works for free public chapters when GoodNovel exposes chapterData/content. Paid, login-only, removed, or access-blocked chapters are not bypassed."
+  },
+  {
     id:"standard-ebooks",
     name:"Standard Ebooks",
     domains:["standardebooks.org"],

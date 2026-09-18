@@ -6,7 +6,7 @@ import {sourceForUrl} from "@/lib/novel-sources";
 export const runtime="nodejs";
 export const maxDuration=60;
 
-type SourceLock={locked?:boolean;sourceOrigin?:string;firstChapterUrl?:string;nextChapterUrl?:string;chapterUrlTemplate?:string};
+type SourceLock={locked?:boolean;sourceOrigin?:string;firstChapterUrl?:string;nextChapterUrl?:string;chapterUrlTemplate?:string;lastChapterNumber?:number};
 type Body={novelTitle?:unknown;chapterNumber?:unknown;chapterUrl?:unknown;storyUrl?:unknown;source?:unknown};
 
 const MAX_HTML_BYTES=4_000_000;
@@ -27,12 +27,12 @@ function privateIp(ip:string){
 
 async function validatePublicUrl(value:string,lockedOrigin?:string){
   let url:URL;
-  try{url=new URL(value)}catch{throw new Error("Invalid chapter URL.")}
-  if(!["http:","https:"].includes(url.protocol))throw new Error("Only http/https chapter URLs are supported.");
-  if(url.username||url.password)throw new Error("URLs with embedded credentials are not supported.");
+  try{url=new URL(value)}catch{throw Object.assign(new Error("Invalid chapter URL."),{statusCode:400})}
+  if(!["http:","https:"].includes(url.protocol))throw Object.assign(new Error("Only http/https chapter URLs are supported."),{statusCode:400});
+  if(url.username||url.password)throw Object.assign(new Error("URLs with embedded credentials are not supported."),{statusCode:400});
   const hostname=url.hostname.toLowerCase();
-  if(hostname==="localhost"||hostname.endsWith(".local")||privateIp(hostname))throw new Error("Private/local network URLs are blocked.");
-  if(lockedOrigin&&url.origin!==lockedOrigin)throw new Error("Source is locked to "+lockedOrigin+". This chapter points to a different website.");
+  if(hostname==="localhost"||hostname.endsWith(".local")||privateIp(hostname))throw Object.assign(new Error("Private/local network URLs are blocked."),{statusCode:400});
+  if(lockedOrigin&&url.origin!==lockedOrigin)throw Object.assign(new Error("Source is locked to "+lockedOrigin+". This chapter points to a different website."),{statusCode:409});
   const addresses=await lookup(hostname,{all:true,verbatim:true}).catch(()=>[]);
   if(!addresses.length)throw new Error("Could not resolve the chapter website.");
   if(addresses.some((item)=>privateIp(item.address)))throw new Error("Chapter URL resolves to a private/local network address.");
@@ -154,7 +154,25 @@ function extractEmbeddedCandidates(html:string){
   return candidates;
 }
 
-function extractNetworkPayloadText(payload:string){
+export function extractGoodNovelChapter(html:string){
+  const markers=["window.__INITIAL_STATE__=","window.INITIAL_STATE="];
+  const marker=markers.find((value)=>html.includes(value));
+  if(!marker)return null;
+  const start=html.indexOf(marker);
+  const jsonStart=start+marker.length;
+  const endings=[html.indexOf(";(function",jsonStart),html.indexOf(";</script",jsonStart)].filter((value)=>value>jsonStart);
+  const jsonEnd=endings.length?Math.min(...endings):-1;
+  if(jsonEnd<0)return null;
+  try{
+    const state=JSON.parse(html.slice(jsonStart,jsonEnd)) as {bookCapter?:{chapterData?:{chapterName?:unknown;content?:unknown}}};
+    const chapter=state.bookCapter?.chapterData;
+    const content=typeof chapter?.content==="string"?chapter.content.trim():"";
+    if(content.length<120)return null;
+    return {title:typeof chapter?.chapterName==="string"?chapter.chapterName.trim():"",text:content};
+  }catch{return null}
+}
+
+export function extractNetworkPayloadText(payload:string){
   const candidates:Array<{text:string;priority:number}>=[];
   try{
     const parsed=JSON.parse(payload) as unknown;
@@ -178,13 +196,13 @@ function extractNetworkPayloadText(payload:string){
   return candidates.sort((a,b)=>(b.priority+proseScore(b.text)/10)-(a.priority+proseScore(a.text)/10))[0]?.text||"";
 }
 
-function extractChapterText(html:string){
+export function extractChapterText(html:string){
   const candidates:Array<{text:string;priority:number}>=[];
   const cleaned=removeNoise(html);
   for(const regex of [
     /<article\b[^>]*>([\s\S]*?)<\/article>/gi,
     /<main\b[^>]*>([\s\S]*?)<\/main>/gi,
-    /<(?:div|section)\b[^>]*(?:id|class)\s*=\s*["'][^"']*(?:chapter[-_ ]?(?:content|text)|reading[-_ ]?content|entry[-_ ]?content|post[-_ ]?content|novel[-_ ]?content|chapter-content)[^"']*["'][^>]*>([\s\S]*?)<\/(?:div|section)>/gi
+    /<(?:div|section)\b[^>]*(?:id|class)\s*=\s*["'][^"']*(?:chapter[-_ ]?(?:content|text)|read(?:ing)?[-_ ]?content|entry[-_ ]?content|post[-_ ]?content|novel[-_ ]?content|chapter-content)[^"']*["'][^>]*>([\s\S]*?)<\/(?:div|section)>/gi
   ]){
     let match:RegExpExecArray|null;
     while((match=regex.exec(cleaned)))pushCandidate(candidates,match[1],180);
@@ -218,7 +236,7 @@ function extractChapterUrlFromEmbedded(html:string,baseUrl:string,chapterNumber:
   return direct?safeSameOriginLink(direct,baseUrl):undefined;
 }
 
-function extractNextUrl(html:string,baseUrl:string,nextChapterNumber:number){
+export function extractNextUrl(html:string,baseUrl:string,nextChapterNumber:number){
   const candidates:Array<{url:string;score:number}>=[];
   for(const match of html.matchAll(/<a\b([^>]*)>([\s\S]*?)<\/a>/gi)){
     const attrs=match[1],href=attrs.match(/href\s*=\s*["']([^"']+)["']/i)?.[1];if(!href)continue;
@@ -235,7 +253,7 @@ function extractNextUrl(html:string,baseUrl:string,nextChapterNumber:number){
   return anchor||extractChapterUrlFromEmbedded(html,baseUrl,nextChapterNumber);
 }
 
-function findChapterUrlOnPage(html:string,baseUrl:string,chapterNumber:number){
+export function findChapterUrlOnPage(html:string,baseUrl:string,chapterNumber:number){
   const candidates:Array<{url:string;score:number}>=[];
   const chapterLabel=new RegExp("\\bchapter\\s*0*"+chapterNumber+"\\b","i");
   const chapterHref=new RegExp("(?:chapter|chap|ch)[-_ /=?]*0*"+chapterNumber+"(?:\\D|$)","i");
@@ -420,8 +438,8 @@ type WikisourcePage={
   canonicalUrl:string;
 };
 
-async function fetchWikisourcePage(pageUrl:string):Promise<WikisourcePage>{
-  const input=await validatePublicUrl(pageUrl);
+async function fetchWikisourcePage(pageUrl:string,lockedOrigin?:string):Promise<WikisourcePage>{
+  const input=await validatePublicUrl(pageUrl,lockedOrigin);
   const host=input.hostname.toLowerCase();
   if(!host.endsWith("wikisource.org"))throw new Error("Not a Wikisource URL.");
 
@@ -444,7 +462,7 @@ async function fetchWikisourcePage(pageUrl:string):Promise<WikisourcePage>{
   }|null;
 
   if(!response.ok||!payload?.parse){
-    throw Object.assign(new Error(payload?.error?.info||"Wikisource API could not load this page."),{statusCode:response.status||502,attemptedUrl:pageUrl});
+    throw Object.assign(new Error(payload?.error?.info||"Wikisource API could not load this page."),{statusCode:response.ok?422:response.status,attemptedUrl:pageUrl});
   }
 
   const html=payload.parse.text||"";
@@ -476,11 +494,30 @@ function buildTemplate(urlValue:string,chapterNumber:number){
   }catch{}
   return undefined;
 }
-function resolveRequestedUrl(chapterNumber:number,explicitUrl:string,source:SourceLock){
+export function resolveRequestedUrl(chapterNumber:number,explicitUrl:string,source:SourceLock){
   if(explicitUrl)return explicitUrl;
+  if(source.lastChapterNumber&&chapterNumber!==source.lastChapterNumber+1){
+    if(source.chapterUrlTemplate)return source.chapterUrlTemplate.replace("{chapter}",String(chapterNumber));
+    throw Object.assign(new Error("Locked source can only auto-scan Chapter "+(source.lastChapterNumber+1)+" next. Paste the Chapter "+chapterNumber+" direct URL manually."),{statusCode:409});
+  }
   if(source.nextChapterUrl)return source.nextChapterUrl;
   if(source.chapterUrlTemplate)return source.chapterUrlTemplate.replace("{chapter}",String(chapterNumber));
   throw new Error("Chapter URL could not be determined. Paste this chapter URL manually.");
+}
+
+export function assertChapterIdentity(chapterNumber:number,url:string,title=""){
+  const values=[url,title];
+  for(const value of values){
+    const parsedUrl=(()=>{try{return new URL(value)}catch{return null}})();
+    const goodNovelNumber=parsedUrl?.hostname.endsWith("goodnovel.com")?parsedUrl.pathname.split("/").filter(Boolean).at(-1)?.match(/^0*(\d+)-/)?.[1]:undefined;
+    const match=value.match(/(?:chapter|chap|ch)[-_ /:=]*0*(\d+)(?=\D|$)/i)||value.match(/^\s*(?:free\s+)?0*(\d+)\s*:/i);
+    const detected=Number(goodNovelNumber||match?.[1]);
+    if(!detected)continue;
+    if(detected!==chapterNumber){
+      throw Object.assign(new Error("Requested Chapter "+chapterNumber+", but the source resolved to Chapter "+detected+". Paste the correct direct chapter URL or scan chapters sequentially."),{statusCode:409,attemptedUrl:url});
+    }
+    return;
+  }
 }
 
 export async function POST(req:Request){
@@ -504,8 +541,9 @@ export async function POST(req:Request){
     }
 
     if(sourceProfile?.id==="wikisource"){
-      const page=await fetchWikisourcePage(attemptedUrl);
+      const page=await fetchWikisourcePage(attemptedUrl,lockedOrigin);
       if(page.text.length<120)throw Object.assign(new Error("Wikisource page loaded, but no readable chapter text was found."),{statusCode:422,attemptedUrl:page.canonicalUrl});
+      assertChapterIdentity(chapterNumber,page.canonicalUrl,page.title);
       const finalUrl=new URL(page.canonicalUrl);
       const nextUrl=wikisourceChapterFromLinks(page.links,chapterNumber+1,finalUrl.hostname);
       return NextResponse.json({
@@ -523,8 +561,9 @@ export async function POST(req:Request){
     const fetched=await fetchPublicHtml(attemptedUrl,lockedOrigin);
     let effectiveUrl=fetched.finalUrl;
     let html=fetched.html;
-    let title=fetched.contentType.includes("text/html")?extractTitle(html,chapterNumber):"Chapter "+chapterNumber;
-    let text=fetched.contentType.includes("text/plain")?html.trim():extractChapterText(html);
+    const goodNovel=new URL(effectiveUrl).hostname.toLowerCase().endsWith("goodnovel.com")?extractGoodNovelChapter(html):null;
+    let title=goodNovel?.title||(fetched.contentType.includes("text/html")?extractTitle(html,chapterNumber):"Chapter "+chapterNumber);
+    let text=goodNovel?.text||(fetched.contentType.includes("text/plain")?html.trim():extractChapterText(html));
 
     if(text.length<120&&fetched.contentType.includes("text/html")){
       try{
@@ -548,11 +587,12 @@ export async function POST(req:Request){
     if(text.length<120)throw Object.assign(new Error("Chapter page opened, but readable chapter text was not found in HTML, JavaScript-rendered DOM, or the page's public text/JSON responses. The chapter may require login/payment or use protected/private data that this importer will not bypass."),{statusCode:422,attemptedUrl:effectiveUrl});
 
     const finalUrl=new URL(effectiveUrl);
+    assertChapterIdentity(chapterNumber,effectiveUrl,title);
     const nextUrl=await discoverNextChapter(html,effectiveUrl,chapterNumber+1,source.sourceOrigin||finalUrl.origin);
     const chapterUrlTemplate=source.chapterUrlTemplate||buildTemplate(effectiveUrl,chapterNumber);
     return NextResponse.json({chapter:{number:chapterNumber,title,url:effectiveUrl,sourceText:text,nextUrl},source:{locked:true,sourceOrigin:source.sourceOrigin||finalUrl.origin,firstChapterUrl:source.firstChapterUrl||effectiveUrl,nextChapterUrl:nextUrl,chapterUrlTemplate}});
   }catch(error){
     const value=error as Error&{statusCode?:number;attemptedUrl?:string},status=value.statusCode&&value.statusCode>=400&&value.statusCode<600?value.statusCode:502;
-    return NextResponse.json({error:value.message||"Chapter scan failed.",attemptedUrl:value.attemptedUrl||attemptedUrl,statusCode:value.statusCode},{status});
+    return NextResponse.json({error:value.message||"Chapter scan failed.",attemptedUrl:value.attemptedUrl||attemptedUrl,statusCode:status},{status});
   }
 }

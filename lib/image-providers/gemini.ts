@@ -6,6 +6,7 @@ const DEFAULT_MODEL="gemini-3.1-flash-image";
 const GOOGLE_SCOPE="https://www.googleapis.com/auth/cloud-platform";
 const GOOGLE_TOKEN_URL="https://oauth2.googleapis.com/token";
 const MAX_REFERENCE_EDGE=896;
+const MAX_REFERENCE_BYTES=8_000_000;
 type ServiceAccount={project_id?:string;client_email:string;private_key:string;token_uri?:string};
 let tokenCache:{accessToken:string;expiresAt:number}|null=null;
 
@@ -19,10 +20,11 @@ function base64url(value:string|Buffer){const bytes=Buffer.isBuffer(value)?value
 
 async function accessToken(account:ServiceAccount){const now=Math.floor(Date.now()/1000);if(tokenCache&&tokenCache.expiresAt>now+90)return tokenCache.accessToken;const header=base64url(JSON.stringify({alg:"RS256",typ:"JWT"}));const payload=base64url(JSON.stringify({iss:account.client_email,scope:GOOGLE_SCOPE,aud:account.token_uri||GOOGLE_TOKEN_URL,iat:now,exp:now+3600}));const unsigned=`${header}.${payload}`;const signer=createSign("RSA-SHA256");signer.update(unsigned);signer.end();const assertion=`${unsigned}.${base64url(signer.sign(account.private_key))}`;const response=await fetch(account.token_uri||GOOGLE_TOKEN_URL,{method:"POST",headers:{"Content-Type":"application/x-www-form-urlencoded"},body:new URLSearchParams({grant_type:"urn:ietf:params:oauth2:grant-type:jwt-bearer",assertion}),cache:"no-store"});const json=await response.json().catch(()=>null) as {access_token?:string;expires_in?:number;error_description?:string}|null;if(!response.ok||!json?.access_token)throw new Error(`Vertex AI authentication failed (${response.status})${json?.error_description?`: ${json.error_description}`:""}`);tokenCache={accessToken:json.access_token,expiresAt:now+(json.expires_in||3600)};return json.access_token}
 
-function parseDataUrl(value:string){const match=value.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,([\s\S]+)$/);if(!match)return null;return {bytes:Buffer.from(match[2],"base64")}}
-async function loadReference(value:string,index:number){const inline=parseDataUrl(value);let bytes:Buffer;if(inline)bytes=inline.bytes;else{const response=await fetch(value,{cache:"no-store"});if(!response.ok)throw new Error(`Reference image ${index+1} could not be loaded (${response.status})`);bytes=Buffer.from(await response.arrayBuffer())}const prepared=await sharp(bytes).rotate().resize({width:MAX_REFERENCE_EDGE,height:MAX_REFERENCE_EDGE,fit:"inside",withoutEnlargement:true}).jpeg({quality:88}).toBuffer();return {inlineData:{mimeType:"image/jpeg",data:prepared.toString("base64")}}}
+export function parseReferenceDataUrl(value:string,index=0){const match=value.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,([A-Za-z0-9+/=\s]+)$/);if(!match)throw new Error(`Reference image ${index+1} must be an uploaded image data URL.`);const bytes=Buffer.from(match[2].replace(/\s/g,""),"base64");if(!bytes.length)throw new Error(`Reference image ${index+1} is empty.`);if(bytes.length>MAX_REFERENCE_BYTES)throw new Error(`Reference image ${index+1} is larger than 8 MB.`);return bytes}
+async function loadReference(value:string,index:number){const bytes=parseReferenceDataUrl(value,index);const prepared=await sharp(bytes).rotate().resize({width:MAX_REFERENCE_EDGE,height:MAX_REFERENCE_EDGE,fit:"inside",withoutEnlargement:true}).jpeg({quality:88}).toBuffer();return {inlineData:{mimeType:"image/jpeg",data:prepared.toString("base64")}}}
 function extractImage(payload:unknown){const data=payload as {candidates?:Array<{content?:{parts?:Array<{inlineData?:{data?:string;mimeType?:string}}>}}>} ;for(const candidate of data.candidates||[])for(const part of candidate.content?.parts||[])if(part.inlineData?.data)return {data:part.inlineData.data,mimeType:part.inlineData.mimeType||"image/jpeg"};return null}
 export function geminiConfigured(){return Boolean(projectId()&&(parseServiceAccount()||apiKey()))}
+export function vertexImageError(status:number,text:string){if(status===429||/RESOURCE_EXHAUSTED/i.test(text))return "Vertex image generation quota is exhausted (429). Check Google Cloud billing/quota or wait for the quota window to reset.";return `Vertex Gemini image request failed (${status})${text?`: ${text.replace(/\s+/g," ").slice(0,400)}`:""}`}
 
 export async function generateWithGemini(input:ImageGenerationInput):Promise<ImageGenerationResult>{
   if(!geminiConfigured())throw new Error("Vertex Gemini is not configured.");
@@ -34,6 +36,6 @@ export async function generateWithGemini(input:ImageGenerationInput):Promise<Ima
   const multimodalParts:Array<{text:string}|{inlineData:{mimeType:string;data:string}}>=[{text:prompt}];
   refParts.forEach((part,index)=>{multimodalParts.push({text:`REFERENCE ${index+1} — ${labels[index]||"continuity reference"}`});multimodalParts.push(part)});
   const response=await fetch(url,{method:"POST",headers,body:JSON.stringify({contents:[{role:"user",parts:multimodalParts}],generationConfig:{responseModalities:["TEXT","IMAGE"],imageConfig:{aspectRatio:nearestAspect(input.width,input.height),imageSize:"1K"}}}),cache:"no-store"});
-  if(!response.ok){const text=await response.text().catch(()=>"");throw new Error(`Vertex Gemini image request failed (${response.status})${text?`: ${text.replace(/\s+/g," ").slice(0,400)}`:""}`)}
+  if(!response.ok){const text=await response.text().catch(()=>"");throw new Error(vertexImageError(response.status,text))}
   const image=extractImage(await response.json());if(!image)throw new Error("Vertex Gemini returned no image.");return {imageDataUrl:`data:${image.mimeType};base64,${image.data}`,model,provider:"gemini",seed:input.seed,referenceCount:references.length};
 }

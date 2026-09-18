@@ -98,6 +98,7 @@ Novel Import includes a source registry with automatic URL detection.
 
 - **Wikisource** — supported through the official MediaWiki API.
 - **Generic public HTML/JSON websites** — conditional support when chapter text is publicly readable and automated access is permitted.
+- **GoodNovel free public chapters** — conditional support through the page's public chapter content; paid/login-only content is not bypassed.
 - **Standard Ebooks** — conditional, depending on the public page/feed used.
 - **Project Gutenberg main website** — not scraped directly; automated access should use Project Gutenberg's approved robot/mirror workflows.
 - **GoodNovel** — not automated; its current Terms prohibit bots/spiders/other automated access. Use pasted text or another permitted source.
