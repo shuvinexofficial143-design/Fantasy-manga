@@ -51,14 +51,6 @@ export const NOVEL_SOURCES:NovelSourceProfile[]=[
     note:"The main website is intended for human access; automated access should use their approved robot/mirror methods."
   },
   {
-    id:"goodnovel",
-    name:"GoodNovel",
-    domains:["goodnovel.com"],
-    status:"unsupported",
-    method:"Manual text / permitted source only",
-    note:"GoodNovel's current Terms prohibit bots, spiders, and other automated means of accessing the platform, so URL crawling is not enabled."
-  },
-  {
     id:"royal-road",
     name:"Royal Road",
     domains:["royalroad.com"],

@@ -45,6 +45,12 @@ describe("real-world chapter extraction shapes",()=>{
     expect(findChapterUrlOnPage(html,"https://fiction.example/book",1)).toBe("https://fiction.example/book/chapter-1");
   });
 
+  it("discovers GoodNovel chapter links that use a title and numeric id",()=>{
+    const html='<a href="/book/Rise_31001136178/Chapter-1-The-Application_14364500">Chapter 1: The Application</a>';
+    expect(findChapterUrlOnPage(html,"https://www.goodnovel.com/book/Rise_31001136178",1))
+      .toBe("https://www.goodnovel.com/book/Rise_31001136178/Chapter-1-The-Application_14364500");
+  });
+
   it("prefers a same-origin next-chapter link",()=>{
     const html='<a rel="next" href="/book/chapter-2">Next Chapter</a><a href="https://tracker.example/next">Next</a>';
     expect(extractNextUrl(html,"https://fiction.example/book/chapter-1",2)).toBe("https://fiction.example/book/chapter-2");

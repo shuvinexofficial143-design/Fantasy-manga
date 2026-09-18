@@ -64,6 +64,36 @@ async function fetchPublicHtml(initial:string,lockedOrigin?:string){
   throw Object.assign(new Error("Too many redirects while opening the chapter."),{statusCode:508,attemptedUrl:initial});
 }
 
+type OpenedPage={
+  html:string;
+  finalUrl:string;
+  contentType:string;
+  visibleText?:string;
+  networkBodies?:string[];
+  renderedTitle?:string;
+};
+
+async function openPublicPage(initial:string,lockedOrigin?:string):Promise<OpenedPage>{
+  try{
+    return await fetchPublicHtml(initial,lockedOrigin);
+  }catch(error){
+    const value=error as Error&{statusCode?:number};
+    // Some public sites return an erroneous 5xx to server-side fetch while the
+    // same public URL still renders normally in a browser. Retry only 5xx
+    // failures; access-denied, login and paywall responses are never bypassed.
+    if(!value.statusCode||value.statusCode<500||value.statusCode>599)throw error;
+    const rendered=await renderPublicPage(initial,lockedOrigin);
+    return {
+      html:rendered.html,
+      finalUrl:rendered.finalUrl,
+      contentType:"text/html",
+      visibleText:rendered.visibleText,
+      networkBodies:rendered.networkBodies,
+      renderedTitle:rendered.title
+    };
+  }
+}
+
 function decodeEntities(value:string){
   const named:Record<string,string>={amp:"&",lt:"<",gt:">",quot:"\"",apos:"'",nbsp:" ",ldquo:"“",rdquo:"”",lsquo:"‘",rsquo:"’",mdash:"—",ndash:"–",hellip:"…"};
   return value.replace(/&#(\d+);/g,(_,code)=>String.fromCodePoint(Number(code))).replace(/&#x([0-9a-f]+);/gi,(_,code)=>String.fromCodePoint(parseInt(code,16))).replace(/&([a-z]+);/gi,(full,name)=>named[name.toLowerCase()]??full);
@@ -289,11 +319,19 @@ async function resolveChapterFromStoryPage(storyUrl:string,chapterNumber:number)
     throw Object.assign(new Error("Chapter "+chapterNumber+" link was not found in this Wikisource page."),{statusCode:422,attemptedUrl:storyUrl});
   }
 
-  const story=await fetchPublicHtml(storyUrl);
+  const story=await openPublicPage(storyUrl);
   let found=findChapterUrlOnPage(story.html,story.finalUrl,chapterNumber);
   if(found)return found;
 
-  if(story.contentType.includes("text/html")){
+  // GoodNovel book pages expose Chapter 1 as the current public chapter on
+  // the book URL itself. In that case there may be no separate Chapter 1 link.
+  if(chapterNumber===1&&new URL(story.finalUrl).hostname.toLowerCase().endsWith("goodnovel.com")){
+    const current=extractGoodNovelChapter(story.html);
+    const visible=story.visibleText||"";
+    if(current?.text||(/\bchapter\s*1\b/i.test(visible)&&visible.length>=120))return story.finalUrl;
+  }
+
+  if(story.contentType.includes("text/html")&&!story.visibleText){
     try{
       const rendered=await renderPublicPage(story.finalUrl);
       found=findChapterUrlOnPage(rendered.html,rendered.finalUrl,chapterNumber);
@@ -558,14 +596,26 @@ export async function POST(req:Request){
       });
     }
 
-    const fetched=await fetchPublicHtml(attemptedUrl,lockedOrigin);
+    const fetched=await openPublicPage(attemptedUrl,lockedOrigin);
     let effectiveUrl=fetched.finalUrl;
     let html=fetched.html;
     const goodNovel=new URL(effectiveUrl).hostname.toLowerCase().endsWith("goodnovel.com")?extractGoodNovelChapter(html):null;
     let title=goodNovel?.title||(fetched.contentType.includes("text/html")?extractTitle(html,chapterNumber):"Chapter "+chapterNumber);
     let text=goodNovel?.text||(fetched.contentType.includes("text/plain")?html.trim():extractChapterText(html));
 
-    if(text.length<120&&fetched.contentType.includes("text/html")){
+    if(!goodNovel&&fetched.visibleText){
+      const renderedCandidates=[
+        text,
+        fetched.visibleText,
+        ...(fetched.networkBodies||[]).map((body)=>extractNetworkPayloadText(body))
+      ]
+        .filter((value)=>value.length>=120)
+        .sort((a,b)=>proseScore(b)-proseScore(a));
+      text=renderedCandidates[0]||"";
+      title=fetched.renderedTitle||title;
+    }
+
+    if(text.length<120&&fetched.contentType.includes("text/html")&&!fetched.visibleText){
       try{
         const rendered=await renderPublicPage(fetched.finalUrl,lockedOrigin);
         effectiveUrl=rendered.finalUrl;
