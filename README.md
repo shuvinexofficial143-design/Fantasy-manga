@@ -76,6 +76,8 @@ Flow:
 6. Each chapter is analyzed against existing characters, locations, previous chapter summary, and previous generated frames.
 7. Scan/import errors are stored and displayed in the Novel Import error panel.
 
+For permitted public sources, the scanner first reads server-visible HTML/JSON and can fall back to a browser-rendered page reader that extracts visible prose and public text/JSON responses.
+
 The scanner does **not** bypass login pages, paywalls, access-denied responses, or anti-bot protections. If a site cannot be read normally, paste/use a source you are permitted to access or provide chapter text manually in the Story workspace.
 
 
@@ -98,6 +100,7 @@ Novel Import includes a source registry with automatic URL detection.
 - **Generic public HTML/JSON websites** — conditional support when chapter text is publicly readable and automated access is permitted.
 - **Standard Ebooks** — conditional, depending on the public page/feed used.
 - **Project Gutenberg main website** — not scraped directly; automated access should use Project Gutenberg's approved robot/mirror workflows.
+- **GoodNovel** — not automated; its current Terms prohibit bots/spiders/other automated access. Use pasted text or another permitted source.
 - **Royal Road** — not automated by this importer.
 - **Inkitt** — not automated by this importer.
 - **NovelNow** — currently marked unsupported for URL import because its public responses do not expose readable chapter text to this importer.
