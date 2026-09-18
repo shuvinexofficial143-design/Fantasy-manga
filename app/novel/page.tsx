@@ -85,6 +85,8 @@ export default function NovelImportPage(){
   const novel=project.novelImport||emptyImport();
   const [chapterNumber,setChapterNumber]=useState(Math.max(1,novel.currentChapter||1));
   const [manualUrl,setManualUrl]=useState("");
+  const [storyPageUrl,setStoryPageUrl]=useState("");
+  const [manualText,setManualText]=useState("");
   const [busy,setBusy]=useState("");
   const [progress,setProgress]=useState("");
   const [notice,setNotice]=useState("");
@@ -157,12 +159,13 @@ export default function NovelImportPage(){
 
     try{
       const current=working.novelImport||emptyImport();
-      if(!current.locked&&!manualUrl.trim())throw new Error("पहली बार Chapter 1 का direct URL paste करें। Successful scan के बाद वही website source lock हो जाएगी.");
+      if(!current.locked&&!manualUrl.trim()&&!storyPageUrl.trim())throw new Error("Direct Chapter URL या Novel/Story Page URL दें। अगर website text नहीं देती तो नीचे chapter text paste करके Analyze करें।");
 
       const scanResponse=await fetch("/api/novel/scan",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({
         novelTitle:current.novelTitle,
         chapterNumber:number,
         chapterUrl:manualUrl.trim()||undefined,
+        storyUrl:storyPageUrl.trim()||undefined,
         source:{
           locked:current.locked,
           sourceOrigin:current.sourceOrigin,
@@ -254,6 +257,7 @@ export default function NovelImportPage(){
       working={...working,characters,locations,images:[...retained,...newScenes],novelImport:analyzedState,updatedAt:new Date().toISOString()};
       commit(working);
       setManualUrl("");
+      setStoryPageUrl("");
 
       if(analyzedState.autoGenerate){
         setProgress("Analysis complete. Chapter "+number+" की "+newScenes.length+" cinematic images बनना शुरू हो गई हैं…");
@@ -267,6 +271,97 @@ export default function NovelImportPage(){
     }catch(reason){
       const message=reason instanceof Error?reason.message:"Chapter import failed.";
       setError(message);
+    }finally{
+      setBusy("");setProgress("");
+    }
+  };
+
+  const analyzePasted=async()=>{
+    const number=Math.max(1,Math.trunc(chapterNumber||1));
+    const chapterText=manualText.trim();
+    if(chapterText.length<120){setError("कम से कम कुछ paragraphs वाला chapter text paste करें।");return}
+
+    setBusy("paste");setError("");setNotice("");setProgress("Pasted Chapter "+number+" को Gemini story model analyze कर रहा है…");
+    let working=project;
+
+    try{
+      const current=working.novelImport||emptyImport();
+      const oldChapter=current.chapters.find((item)=>item.number===number);
+      const scannedChapter:NovelChapter={
+        number,
+        title:"Chapter "+number+" · Pasted Text",
+        url:"manual://chapter-"+number,
+        sourceText:chapterText,
+        scannedAt:new Date().toISOString(),
+        sceneIds:oldChapter?.sceneIds||[],
+        status:"scanned"
+      };
+      const scannedState:NovelImportState={
+        ...current,
+        currentChapter:number,
+        chapters:upsertChapter(current.chapters,scannedChapter)
+      };
+
+      working={...working,storyTitle:working.storyTitle||scannedState.novelTitle,story:chapterText,novelImport:scannedState,updatedAt:new Date().toISOString()};
+      commit(working);
+
+      const previousSummary=[...scannedState.chapters].filter((item)=>item.number<number&&item.summary).sort((a,b)=>b.number-a.number)[0]?.summary||"";
+      const analyzeResponse=await fetch("/api/novel/analyze",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({
+        chapterNumber:number,
+        chapterText,
+        existingCharacters:working.characters,
+        existingLocations:working.locations,
+        previousSummary
+      })});
+      const analysis=await analyzeResponse.json() as AnalyzePayload;
+      if(!analyzeResponse.ok||!analysis.scenes?.length)throw new Error(analysis.error||"Chapter analysis failed.");
+
+      const characters=mergeCharacters(working.characters,analysis.characters||[]);
+      const locations=mergeLocations(working.locations,analysis.locations||[]);
+      const oldIds=new Set(oldChapter?.sceneIds||[]);
+      const retained=working.images.filter((image)=>!oldIds.has(image.id));
+      let nextSceneNumber=retained.reduce((max,image)=>Math.max(max,image.sceneNumber),0)+1;
+
+      const newScenes=analysis.scenes.map((item)=>{
+        const states:SceneCharacterState[]=item.characters.map((state)=>{
+          const character=characters.find((entry)=>entry.name.trim().toLowerCase()===state.name.trim().toLowerCase());
+          return character?{characterId:character.id,position:state.position,action:state.action,direction:state.direction,expression:state.expression,stateNotes:state.stateNotes}:null;
+        }).filter((value):value is SceneCharacterState=>Boolean(value));
+        const scene=createImage(nextSceneNumber++,item.sourceText,states);
+        scene.chapterNumber=number;
+        scene.title=item.title||scene.title;
+        scene.locationId=locations.find((entry)=>entry.name.trim().toLowerCase()===item.locationName.trim().toLowerCase())?.id;
+        scene.cameraShot=item.cameraShot||scene.cameraShot;
+        scene.cameraAngle=item.cameraAngle||scene.cameraAngle;
+        scene.cameraDirection=item.cameraDirection||scene.cameraDirection;
+        scene.continuityNotes=item.continuityNotes||("Continue chapter "+number+" state from the previous scene.");
+        return scene;
+      });
+
+      const analyzedChapter:NovelChapter={
+        ...scannedChapter,
+        summary:analysis.summary,
+        analyzedAt:new Date().toISOString(),
+        sceneIds:newScenes.map((scene)=>scene.id),
+        status:"analyzed",
+        error:undefined
+      };
+      const analyzedState:NovelImportState={...scannedState,chapters:upsertChapter(scannedState.chapters,analyzedChapter)};
+      working={...working,characters,locations,images:[...retained,...newScenes],novelImport:analyzedState,updatedAt:new Date().toISOString()};
+      commit(working);
+      setManualText("");
+
+      if(analyzedState.autoGenerate){
+        setProgress("Analysis complete. Chapter "+number+" की "+newScenes.length+" cinematic images बनना शुरू हो गई हैं…");
+        working=await generateChapterImages(working,number,newScenes.map((scene)=>scene.id));
+        setNotice("Pasted Chapter "+number+" analysis और image generation complete.");
+      }else{
+        setNotice("Pasted Chapter "+number+" analysis complete. "+newScenes.length+" continuity scenes तैयार हैं.");
+      }
+
+      setChapterNumber(number+1);
+    }catch(reason){
+      setError(reason instanceof Error?reason.message:"Pasted chapter analysis failed.");
     }finally{
       setBusy("");setProgress("");
     }
@@ -287,7 +382,8 @@ export default function NovelImportPage(){
     const next=project.novelImport||emptyImport();
     patchImport({...next,locked:false,sourceOrigin:undefined,firstChapterUrl:undefined,nextChapterUrl:undefined,chapterUrlTemplate:undefined});
     setManualUrl("");
-    setNotice("Source unlock हो गया। अगली scan पर नया direct chapter URL देना होगा.");
+    setStoryPageUrl("");
+    setNotice("Source unlock हो गया। अगली scan पर direct chapter URL या novel/story page URL दे सकते हैं.");
   };
 
   return <div className="mx-auto max-w-6xl space-y-6">
@@ -312,15 +408,22 @@ export default function NovelImportPage(){
         </label>
       </div>
 
-      <label className="mt-4 grid gap-1.5 text-sm font-semibold text-slate-700">
-        {novel.locked?"Manual Chapter URL (optional — blank = same locked source से auto-next)":"Chapter 1 Direct URL (first scan के लिए required)"}
-        <input value={manualUrl} disabled={!!busy} onChange={(e)=>setManualUrl(e.target.value)} placeholder="https://example.com/novel/chapter-1" className="rounded-xl border border-slate-200 px-3 py-2.5"/>
-      </label>
+      <div className="mt-4 grid gap-4 md:grid-cols-2">
+        <label className="grid gap-1.5 text-sm font-semibold text-slate-700">
+          {novel.locked?"Direct Chapter URL (optional — blank = locked source auto-next)":"Direct Chapter URL"}
+          <input value={manualUrl} disabled={!!busy} onChange={(e)=>setManualUrl(e.target.value)} placeholder="https://example.com/novel/chapter-1" className="rounded-xl border border-slate-200 px-3 py-2.5"/>
+        </label>
+        <label className="grid gap-1.5 text-sm font-semibold text-slate-700">
+          Novel / Story Page URL
+          <input value={storyPageUrl} disabled={!!busy||novel.locked} onChange={(e)=>setStoryPageUrl(e.target.value)} placeholder="https://example.com/novel-title" className="rounded-xl border border-slate-200 px-3 py-2.5"/>
+          <span className="text-xs font-normal text-slate-500">अगर page पर chapter list public है, website Chapter {chapterNumber} का link खुद ढूँढेगी.</span>
+        </label>
+      </div>
 
       <div className="mt-4 flex flex-wrap items-center gap-3">
         <button disabled={!!busy} onClick={()=>void scanAnalyze()} className="inline-flex items-center gap-2 rounded-xl bg-violet-600 px-5 py-3 text-sm font-bold text-white shadow-sm disabled:opacity-50">
           {busy?<Loader2 className="animate-spin" size={17}/>:<ScanSearch size={17}/>}
-          Scan Chapter {chapterNumber} + Analyze {novel.autoGenerate?"+ Generate":""}
+          Scan URL + Analyze {novel.autoGenerate?"+ Generate":""}
         </button>
         <label className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-700">
           <input type="checkbox" checked={novel.autoGenerate} disabled={!!busy} onChange={(e)=>patchImport({autoGenerate:e.target.checked})}/>
@@ -328,6 +431,17 @@ export default function NovelImportPage(){
         </label>
         {novel.locked&&<button disabled={!!busy} onClick={unlockSource} className="inline-flex items-center gap-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2.5 text-sm font-semibold text-red-700"><LockOpen size={15}/> Unlock source</button>}
       </div>
+
+      <div className="my-5 flex items-center gap-3 text-xs font-bold uppercase tracking-widest text-slate-400"><div className="h-px flex-1 bg-slate-200"/><span>OR — PASTE CHAPTER TEXT</span><div className="h-px flex-1 bg-slate-200"/></div>
+      <label className="grid gap-1.5 text-sm font-semibold text-slate-700">
+        Chapter {chapterNumber} Text
+        <textarea value={manualText} disabled={!!busy} onChange={(e)=>setManualText(e.target.value)} placeholder="जिस chapter को आप legally access/use कर सकते हैं उसका text यहाँ paste करें…" className="min-h-52 rounded-xl border border-slate-200 px-3 py-3 text-sm leading-6"/>
+        <span className="text-xs font-normal text-slate-500">{manualText.length.toLocaleString()} characters · URL scan fail होने पर यह सबसे reliable तरीका है.</span>
+      </label>
+      <button disabled={!!busy||manualText.trim().length<120} onClick={()=>void analyzePasted()} className="mt-3 inline-flex items-center gap-2 rounded-xl border border-violet-200 bg-violet-50 px-5 py-3 text-sm font-bold text-violet-700 disabled:opacity-50">
+        {busy==="paste"?<Loader2 className="animate-spin" size={17}/>:<BookOpenCheck size={17}/>}
+        Analyze Pasted Chapter {chapterNumber} {novel.autoGenerate?"+ Generate Images":""}
+      </button>
 
       {novel.locked&&<div className="mt-5 grid gap-3 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900 md:grid-cols-2">
         <div><div className="text-xs font-bold uppercase tracking-wider text-emerald-700">Locked website</div><div className="mt-1 break-all font-semibold">{novel.sourceOrigin}</div></div>
@@ -350,11 +464,11 @@ export default function NovelImportPage(){
             <div className="min-w-0">
               <div className="font-bold">Chapter {chapter.number} · {chapter.title}</div>
               <div className="mt-1 flex flex-wrap gap-2 text-xs text-slate-500"><span>{chapter.sourceText.length.toLocaleString()} chars scanned</span><span>·</span><span>{chapter.sceneIds.length} scenes</span><span>·</span><span className="font-semibold uppercase">{chapter.status}</span></div>
-              <a href={chapter.url} target="_blank" rel="noreferrer" className="mt-2 inline-flex max-w-full items-center gap-1 truncate text-xs font-semibold text-violet-700"><ExternalLink size={12}/>{chapter.url}</a>
+              {chapter.url.startsWith("http")?<a href={chapter.url} target="_blank" rel="noreferrer" className="mt-2 inline-flex max-w-full items-center gap-1 truncate text-xs font-semibold text-violet-700"><ExternalLink size={12}/>{chapter.url}</a>:<div className="mt-2 text-xs font-semibold text-slate-500">Pasted chapter text</div>}
             </div>
             <div className="flex gap-2">
               {chapter.status!=="generated"&&chapter.sceneIds.length>0&&<button disabled={!!busy} onClick={()=>void generateCurrent(chapter.number)} className="inline-flex items-center gap-1.5 rounded-lg bg-violet-600 px-3 py-2 text-xs font-bold text-white disabled:opacity-50"><Play size={13}/> Generate Images</button>}
-              <button disabled={!!busy} onClick={()=>{setChapterNumber(chapter.number);setManualUrl(chapter.url)}} className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700"><RefreshCw size={13}/> Rescan</button>
+              <button disabled={!!busy} onClick={()=>{setChapterNumber(chapter.number);if(chapter.url.startsWith("http")){setManualUrl(chapter.url);setManualText("")}else{setManualText(chapter.sourceText);setManualUrl("")}}} className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700"><RefreshCw size={13}/> Rescan</button>
             </div>
           </div>
         </article>):<div className="rounded-xl border border-dashed border-slate-300 p-8 text-center text-sm text-slate-500"><Globe2 className="mx-auto mb-2"/>अभी कोई chapter scan नहीं हुआ.</div>}
