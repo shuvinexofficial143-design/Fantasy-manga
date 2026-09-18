@@ -77,3 +77,14 @@ Flow:
 7. Scan/import errors are stored and displayed in the Novel Import error panel.
 
 The scanner does **not** bypass login pages, paywalls, access-denied responses, or anti-bot protections. If a site cannot be read normally, paste/use a source you are permitted to access or provide chapter text manually in the Story workspace.
+
+
+### Reliable novel input modes
+
+Novel Import now supports three input paths:
+
+1. **Direct Chapter URL** — best when the chapter page exposes readable public text.
+2. **Novel / Story Page URL** — the importer looks for the requested chapter link on a public chapter list, then scans that chapter.
+3. **Paste Chapter Text** — reliable fallback for sites that do not expose chapter text to server-side/public page requests. Pasted text goes directly to the same Vertex continuity analysis and image pipeline.
+
+Source locking is only applied after a successful URL-based chapter scan. Pasted text does not bypass or unlock a protected source.

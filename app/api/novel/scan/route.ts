@@ -6,7 +6,7 @@ export const runtime="nodejs";
 export const maxDuration=60;
 
 type SourceLock={locked?:boolean;sourceOrigin?:string;firstChapterUrl?:string;nextChapterUrl?:string;chapterUrlTemplate?:string};
-type Body={novelTitle?:unknown;chapterNumber?:unknown;chapterUrl?:unknown;source?:unknown};
+type Body={novelTitle?:unknown;chapterNumber?:unknown;chapterUrl?:unknown;storyUrl?:unknown;source?:unknown};
 
 const MAX_HTML_BYTES=4_000_000;
 const USER_AGENT="FantasyCinematicStudio/1.0 (+chapter-import; respects source access controls)";
@@ -234,6 +234,44 @@ function extractNextUrl(html:string,baseUrl:string,nextChapterNumber:number){
   return anchor||extractChapterUrlFromEmbedded(html,baseUrl,nextChapterNumber);
 }
 
+function findChapterUrlOnPage(html:string,baseUrl:string,chapterNumber:number){
+  const candidates:Array<{url:string;score:number}>=[];
+  const chapterLabel=new RegExp("\\bchapter\\s*0*"+chapterNumber+"\\b","i");
+  const chapterHref=new RegExp("(?:chapter|chap|ch)[-_ /=?]*0*"+chapterNumber+"(?:\\D|$)","i");
+
+  for(const match of html.matchAll(/<a\b([^>]*)>([\s\S]*?)<\/a>/gi)){
+    const attrs=match[1],href=attrs.match(/href\s*=\s*["']([^"']+)["']/i)?.[1];
+    if(!href)continue;
+    const url=safeSameOriginLink(href,baseUrl);
+    if(!url)continue;
+    const text=stripMarkup(match[2]);
+    let score=0;
+    if(chapterLabel.test(text))score+=120;
+    if(chapterHref.test(url))score+=90;
+    if(new RegExp("chapter[-_ ]?0*"+chapterNumber+"(?:\\D|$)","i").test(url))score+=60;
+    if(score)candidates.push({url,score});
+  }
+
+  return candidates.sort((a,b)=>b.score-a.score)[0]?.url
+    ||extractChapterUrlFromEmbedded(html,baseUrl,chapterNumber);
+}
+
+async function resolveChapterFromStoryPage(storyUrl:string,chapterNumber:number){
+  const story=await fetchPublicHtml(storyUrl);
+  let found=findChapterUrlOnPage(story.html,story.finalUrl,chapterNumber);
+  if(found)return found;
+
+  if(story.contentType.includes("text/html")){
+    try{
+      const rendered=await renderPublicPage(story.finalUrl);
+      found=findChapterUrlOnPage(rendered.html,rendered.finalUrl,chapterNumber);
+      if(found)return found;
+    }catch{}
+  }
+
+  throw Object.assign(new Error("Chapter "+chapterNumber+" link could not be found on the supplied novel/story page. Paste a direct chapter URL or paste the chapter text instead."),{statusCode:422,attemptedUrl:story.finalUrl});
+}
+
 function storyIndexUrl(chapterUrl:string){
   try{
     const url=new URL(chapterUrl);
@@ -340,8 +378,16 @@ function resolveRequestedUrl(chapterNumber:number,explicitUrl:string,source:Sour
 export async function POST(req:Request){
   let attemptedUrl="";
   try{
-    const body=await req.json() as Body,chapterNumber=Math.max(1,Math.trunc(Number(body.chapterNumber)||1)),explicitUrl=stringValue(body.chapterUrl),source=(body.source&&typeof body.source==="object"?body.source:{}) as SourceLock;
-    attemptedUrl=resolveRequestedUrl(chapterNumber,explicitUrl,source);
+    const body=await req.json() as Body,chapterNumber=Math.max(1,Math.trunc(Number(body.chapterNumber)||1)),explicitUrl=stringValue(body.chapterUrl),storyUrl=stringValue(body.storyUrl),source=(body.source&&typeof body.source==="object"?body.source:{}) as SourceLock;
+    if(explicitUrl){
+      attemptedUrl=explicitUrl;
+    }else if(source.nextChapterUrl||source.chapterUrlTemplate){
+      attemptedUrl=resolveRequestedUrl(chapterNumber,"",source);
+    }else if(storyUrl){
+      attemptedUrl=await resolveChapterFromStoryPage(storyUrl,chapterNumber);
+    }else{
+      attemptedUrl=resolveRequestedUrl(chapterNumber,"",source);
+    }
     const lockedOrigin=source.locked&&source.sourceOrigin?source.sourceOrigin:undefined;
     const fetched=await fetchPublicHtml(attemptedUrl,lockedOrigin);
     let effectiveUrl=fetched.finalUrl;
