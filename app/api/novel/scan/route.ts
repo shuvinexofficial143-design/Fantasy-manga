@@ -4,7 +4,7 @@ import {NextResponse} from "next/server";
 
 export const runtime="nodejs";
 
-type SourceLock={locked?:boolean;sourceOrigin?:string;nextChapterUrl?:string;chapterUrlTemplate?:string};
+type SourceLock={locked?:boolean;sourceOrigin?:string;firstChapterUrl?:string;nextChapterUrl?:string;chapterUrlTemplate?:string};
 type Body={novelTitle?:unknown;chapterNumber?:unknown;chapterUrl?:unknown;source?:unknown};
 
 const MAX_HTML_BYTES=4_000_000;
