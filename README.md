@@ -1,18 +1,50 @@
 # Fantasy Manga — Cinematic Studio
 
-This repository is the new cinematic-image project built from the StoryFrame visual layout.
+Cinematic full-image story generator based on the StoryFrame workflow, with continuity tracking for recurring characters, locations, actions and previous frames.
 
-## Key difference from the old manga workflow
+## Google Cloud only
 
-- Same dark/violet StoryFrame-style workspace and navigation language.
-- Same project/story/character/location/reference workflow.
-- **No manga panel sheets.**
-- **No webtoon slicing.**
-- **No page composer.**
-- Each planned story moment generates **one complete cinematic painting / full-frame image**.
-- Character and location reference photos are supported for similarity when Vertex Gemini is configured.
+This project is intentionally configured for **Google Cloud Vertex AI only**.
 
-## Local development
+- Story / continuity analysis: `GEMINI_STORY_MODEL=gemini-3.1-pro-preview`
+- Image generation: `GEMINI_IMAGE_MODEL=gemini-3.1-flash-image`
+- Vertex endpoint: `aiplatform.googleapis.com`
+- No Pollinations / Cloudflare / other image fallback is used.
+
+## Vercel environment variables
+
+Required:
+
+- `VERTEX_AI_PROJECT_ID`
+- `VERTEX_AI_LOCATION=global`
+- `GEMINI_STORY_MODEL=gemini-3.1-pro-preview`
+- `VERTEX_STORY_TIMEOUT_MS=120000`
+- `GEMINI_IMAGE_MODEL=gemini-3.1-flash-image`
+- `FANTASY_DEFAULT_IMAGE_PROVIDER=gemini`
+
+For authentication choose one:
+
+### Option A — Google Cloud authorization/API key
+
+Set:
+
+- `VERTEX_AI_API_KEY`
+
+The key must be usable with Vertex AI / `aiplatform.googleapis.com`. A normal unrestricted API key that is not accepted by Vertex AI will not work.
+
+### Option B — Service account JSON
+
+Set:
+
+- `VERTEX_AI_SERVICE_ACCOUNT_JSON`
+
+Open the downloaded service-account `.json` file in any text editor, copy the **entire JSON from the first `{` to the last `}`**, and paste it as one Vercel secret value. Do not commit the JSON file to GitHub.
+
+Optional alternative:
+
+- `VERTEX_AI_SERVICE_ACCOUNT_BASE64` — base64 of the complete JSON file.
+
+## Development
 
 ```bash
 npm install
@@ -27,10 +59,4 @@ npm run lint
 npm run build
 ```
 
-## Image providers
-
-Primary: Google Cloud Vertex AI Gemini image generation when configured.
-
-Fallback: Pollinations public image endpoint. The fallback is text-only and cannot use uploaded reference images.
-
-Copy `.env.example` to `.env.local` and fill only server-side environment variables. Never commit secrets.
+Secrets belong only in Vercel Environment Variables / local `.env.local`; never commit real keys or service-account JSON to the repository.
