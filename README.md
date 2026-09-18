@@ -60,3 +60,20 @@ npm run build
 ```
 
 Secrets belong only in Vercel Environment Variables / local `.env.local`; never commit real keys or service-account JSON to the repository.
+
+
+## Novel chapter import
+
+The **Novel Import** workspace can scan a public chapter URL, lock the successful source domain, analyze the chapter with the configured Vertex story model, append continuity-aware scenes, and optionally start image generation automatically.
+
+Flow:
+
+1. Enter the original novel name.
+2. Paste the Chapter 1 direct URL.
+3. Scan Chapter 1.
+4. The successful website origin is locked.
+5. Chapter 2, 3, and later scans reuse the same source through the detected Next Chapter link or saved URL template.
+6. Each chapter is analyzed against existing characters, locations, previous chapter summary, and previous generated frames.
+7. Scan/import errors are stored and displayed in the Novel Import error panel.
+
+The scanner does **not** bypass login pages, paywalls, access-denied responses, or anti-bot protections. If a site cannot be read normally, paste/use a source you are permitted to access or provide chapter text manually in the Story workspace.
