@@ -18,7 +18,6 @@ const nav=[
 export function AppShell({children}:{children:React.ReactNode}){
   const path=usePathname();
   const {project}=useProject();
-  if(path==="/")return <>{children}</>;
 
   return <div className="min-h-screen bg-slate-50 text-slate-900 lg:grid lg:grid-cols-[260px_1fr]">
     <aside className="border-b border-slate-200 bg-white p-4 lg:sticky lg:top-0 lg:h-screen lg:border-b-0 lg:border-r">
