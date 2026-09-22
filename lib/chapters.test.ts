@@ -1,5 +1,5 @@
 import {describe,expect,it} from "vitest";
-import {chapterSourceKey,splitChapterForDensity,splitChapterLogically} from "./chapters";
+import {chapterSourceKey,splitChapterForDensity,splitChapterLogically,visualCoverageTarget} from "./chapters";
 
 describe("chapter analysis chunking",()=>{
   it("keeps paragraph boundaries while splitting a long chapter",()=>{
@@ -22,6 +22,21 @@ describe("chapter analysis chunking",()=>{
     expect(chapterSourceKey(text,"highest")).not.toBe(chapterSourceKey(text,"ultra"));
     expect(chapterSourceKey(text,"standard","reference-video")).not.toBe(chapterSourceKey(text,"standard","cinematic-realistic"));
     expect(chapterSourceKey(text,"standard","cinematic-realistic")).not.toBe(chapterSourceKey(text,"standard","custom"));
+  });
+
+  it("returns stable density coverage targets for identical text",()=>{
+    const text=Array(530).fill("story").join(" ");
+    expect(visualCoverageTarget(text,"standard")).toEqual(visualCoverageTarget(text,"standard"));
+    expect(visualCoverageTarget(text,"highest").target).toBeGreaterThan(visualCoverageTarget(text,"standard").target);
+    expect(visualCoverageTarget(text,"ultra").target).toBeGreaterThan(visualCoverageTarget(text,"highest").target);
+  });
+
+  it("keeps standard chapter-scale coverage near the configured reference",()=>{
+    const text=Array(1376).fill("story").join(" ");
+    const parts=splitChapterForDensity(text,"standard");
+    const total=parts.reduce((sum,part)=>sum+visualCoverageTarget(part,"standard").target,0);
+    expect(total).toBeGreaterThanOrEqual(50);
+    expect(total).toBeLessThanOrEqual(55);
   });
 
   it("uses progressively finer chunks for higher visual density",()=>{
