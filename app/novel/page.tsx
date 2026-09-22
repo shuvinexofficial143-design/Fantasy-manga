@@ -6,11 +6,12 @@ import {buildCinematicPrompt,hashString} from "@/lib/cinematic";
 import {createImage} from "@/lib/default-project";
 import {NOVEL_SOURCES,sourceForUrl} from "@/lib/novel-sources";
 import {replaceChapterScenes} from "@/lib/novel-workflow";
-import type {Character,CinematicImage,Location,NovelChapter,NovelImportError,NovelImportState,Project,SceneCharacterState} from "@/lib/types";
+import {findLocation,findNamed,namedSceneCharacters,novelReferences,sceneTarget,type SceneDetail} from "@/lib/novel-continuity";
+import type {Character,CinematicImage,Location,NovelChapter,NovelImportError,NovelImportState,Project} from "@/lib/types";
 import {useProject} from "@/components/project-provider";
 
 const uid=()=>typeof crypto!=="undefined"&&"randomUUID" in crypto?crypto.randomUUID():String(Date.now())+"-"+Math.random().toString(36).slice(2);
-const emptyImport=():NovelImportState=>({novelTitle:"",locked:false,currentChapter:1,autoGenerate:true,chapters:[],errorLog:[]});
+const emptyImport=():NovelImportState=>({novelTitle:"",sceneDetail:"standard",locked:false,currentChapter:1,autoGenerate:true,chapters:[],errorLog:[]});
 
 type AnalyzePayload={
   summary:string;
@@ -29,29 +30,10 @@ type AnalyzePayload={
   error?:string;
 };
 
-function referencesFor(scene:CinematicImage,project:Project,previous?:CinematicImage){
-  const refs:Array<{image:string;label:string}>=[];
-  for(const state of scene.characterStates){
-    const character=project.characters.find((item)=>item.id===state.characterId);
-    if(character?.referenceImage&&!refs.some((item)=>item.image===character.referenceImage))refs.push({image:character.referenceImage,label:"Character master — "+character.name});
-    if(refs.filter((item)=>item.label.startsWith("Character master")).length>=3)break;
-  }
-  const location=project.locations.find((item)=>item.id===scene.locationId);
-  const locationRef=location?.referenceImage?{image:location.referenceImage,label:"Location master — "+location.name}:undefined;
-  if(refs.length<=2&&locationRef)refs.push(locationRef);
-  if(scene.usePreviousImage&&previous?.image){
-    if(refs.length>=4)refs.pop();
-    refs.push({image:previous.image,label:"Previous generated frame — Scene "+previous.sceneNumber});
-  }
-  if(refs.length<4&&locationRef&&!refs.some((item)=>item.image===locationRef.image))refs.push(locationRef);
-  if(refs.length<4&&project.styleReferenceImage)refs.push({image:project.styleReferenceImage,label:"Master style reference"});
-  return {images:refs.slice(0,4).map((item)=>item.image),labels:refs.slice(0,4).map((item)=>item.label)};
-}
-
 function mergeCharacters(existing:Character[],incoming:AnalyzePayload["characters"]){
   const result=existing.map((item)=>({...item}));
   for(const item of incoming){
-    const found=result.find((current)=>current.name.trim().toLowerCase()===item.name.trim().toLowerCase());
+    const found=result.find((current)=>findNamed([current],item.name)!==undefined);
     if(found){
       if(!found.appearance)found.appearance=item.appearance;
       if(!found.outfit)found.outfit=item.outfit;
@@ -66,7 +48,7 @@ function mergeCharacters(existing:Character[],incoming:AnalyzePayload["character
 function mergeLocations(existing:Location[],incoming:AnalyzePayload["locations"]){
   const result=existing.map((item)=>({...item}));
   for(const item of incoming){
-    const found=result.find((current)=>current.name.trim().toLowerCase()===item.name.trim().toLowerCase());
+    const found=result.find((current)=>findNamed([current],item.name)!==undefined);
     if(found){
       if(!found.description)found.description=item.description;
       if(!found.lighting)found.lighting=item.lighting;
@@ -83,7 +65,7 @@ function upsertChapter(chapters:NovelChapter[],chapter:NovelChapter){
 }
 
 export default function NovelImportPage(){
-  const {project,setState}=useProject();
+  const {project,setState,persistenceError}=useProject();
   const novel=project.novelImport||emptyImport();
   const [chapterNumber,setChapterNumber]=useState(Math.max(1,novel.currentChapter||1));
   const [manualUrl,setManualUrl]=useState("");
@@ -122,12 +104,12 @@ export default function NovelImportPage(){
     if(working.continuityMode==="strict"&&scene.usePreviousImage&&previous&&!previous.image)throw new Error("Generate Scene "+previous.sceneNumber+" first for strict continuity.");
 
     const prompt=buildCinematicPrompt({scene,project:working,previousScene:previous});
-    const refs=referencesFor(scene,working,previous);
+    const refs=novelReferences(scene,working,previous);
     const response=await fetch("/api/generate",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({
       prompt,
       negativePrompt:scene.negativePrompt,
       aspectRatio:working.aspectRatio,
-      seed:scene.seed||hashString(working.id+"|"+scene.id+"|"+scene.sceneNumber),
+      seed:scene.seed||hashString(working.id+"|"+scene.characterStates.map((state)=>state.characterId).sort().join("|")+"|"+(scene.locationId||"")),
       referenceImages:refs.images,
       referenceLabels:refs.labels
     })});
@@ -222,6 +204,7 @@ export default function NovelImportPage(){
         chapterText:scan.chapter.sourceText,
         existingCharacters:working.characters,
         existingLocations:working.locations,
+        sceneDetail:current.sceneDetail||"standard",
         previousSummary
       })});
       const analysis=await analyzeResponse.json() as AnalyzePayload;
@@ -233,15 +216,14 @@ export default function NovelImportPage(){
       const retained=working.images.filter((image)=>!oldIds.has(image.id));
       let nextSceneNumber=retained.reduce((max,image)=>Math.max(max,image.sceneNumber),0)+1;
 
+      let priorLocationId=retained.filter((image)=>image.sceneNumber<nextSceneNumber).sort((a,b)=>b.sceneNumber-a.sceneNumber)[0]?.locationId;
       const newScenes=analysis.scenes.map((item)=>{
-        const states:SceneCharacterState[]=item.characters.map((state)=>{
-          const character=characters.find((entry)=>entry.name.trim().toLowerCase()===state.name.trim().toLowerCase());
-          return character?{characterId:character.id,position:state.position,action:state.action,direction:state.direction,expression:state.expression,stateNotes:state.stateNotes}:null;
-        }).filter((value):value is SceneCharacterState=>Boolean(value));
+        const states=namedSceneCharacters(item.characters,characters);
         const scene=createImage(nextSceneNumber++,item.sourceText,states);
         scene.chapterNumber=number;
         scene.title=item.title||scene.title;
-        scene.locationId=locations.find((entry)=>entry.name.trim().toLowerCase()===item.locationName.trim().toLowerCase())?.id;
+        scene.locationId=findLocation(locations,item.locationName)||priorLocationId;
+        priorLocationId=scene.locationId;
         scene.cameraShot=item.cameraShot||scene.cameraShot;
         scene.cameraAngle=item.cameraAngle||scene.cameraAngle;
         scene.cameraDirection=item.cameraDirection||scene.cameraDirection;
@@ -315,6 +297,7 @@ export default function NovelImportPage(){
         chapterText,
         existingCharacters:working.characters,
         existingLocations:working.locations,
+        sceneDetail:current.sceneDetail||"standard",
         previousSummary
       })});
       const analysis=await analyzeResponse.json() as AnalyzePayload;
@@ -326,15 +309,14 @@ export default function NovelImportPage(){
       const retained=working.images.filter((image)=>!oldIds.has(image.id));
       let nextSceneNumber=retained.reduce((max,image)=>Math.max(max,image.sceneNumber),0)+1;
 
+      let priorLocationId=retained.filter((image)=>image.sceneNumber<nextSceneNumber).sort((a,b)=>b.sceneNumber-a.sceneNumber)[0]?.locationId;
       const newScenes=analysis.scenes.map((item)=>{
-        const states:SceneCharacterState[]=item.characters.map((state)=>{
-          const character=characters.find((entry)=>entry.name.trim().toLowerCase()===state.name.trim().toLowerCase());
-          return character?{characterId:character.id,position:state.position,action:state.action,direction:state.direction,expression:state.expression,stateNotes:state.stateNotes}:null;
-        }).filter((value):value is SceneCharacterState=>Boolean(value));
+        const states=namedSceneCharacters(item.characters,characters);
         const scene=createImage(nextSceneNumber++,item.sourceText,states);
         scene.chapterNumber=number;
         scene.title=item.title||scene.title;
-        scene.locationId=locations.find((entry)=>entry.name.trim().toLowerCase()===item.locationName.trim().toLowerCase())?.id;
+        scene.locationId=findLocation(locations,item.locationName)||priorLocationId;
+        priorLocationId=scene.locationId;
         scene.cameraShot=item.cameraShot||scene.cameraShot;
         scene.cameraAngle=item.cameraAngle||scene.cameraAngle;
         scene.cameraDirection=item.cameraDirection||scene.cameraDirection;
@@ -424,6 +406,14 @@ export default function NovelImportPage(){
         </label>
       </div>
 
+      <label className="mt-4 grid max-w-md gap-1.5 text-sm font-semibold text-slate-700">Chapter scene detail
+        <select value={novel.sceneDetail||"standard"} disabled={!!busy} onChange={(e)=>patchImport({sceneDetail:e.target.value as SceneDetail})} className="rounded-xl border border-slate-200 px-3 py-2.5">
+          <option value="standard">Standard — major moments</option>
+          <option value="highest">Highest — actions and reactions</option>
+          <option value="ultra">Ultra Highest — small story beats</option>
+        </select>
+        <span className="text-xs font-normal text-slate-500">{manualText.trim()?`लगभग ${sceneTarget(manualText,novel.sceneDetail||"standard")} scenes का लक्ष्य · `:""}हर scene की एक image बनेगी; ज़्यादा detail में समय और API खर्च बढ़ेंगे।</span>
+      </label>
       <div className="mt-4 flex flex-wrap items-center gap-3">
         <button disabled={!!busy} onClick={()=>void scanAnalyze()} className="inline-flex items-center gap-2 rounded-xl bg-violet-600 px-5 py-3 text-sm font-bold text-white shadow-sm disabled:opacity-50">
           {busy?<Loader2 className="animate-spin" size={17}/>:<ScanSearch size={17}/>}
@@ -479,6 +469,7 @@ export default function NovelImportPage(){
     {progress&&<div className="rounded-2xl border border-violet-200 bg-violet-50 p-4 text-sm text-violet-800"><Loader2 className="mr-2 inline animate-spin" size={16}/>{progress}</div>}
     {notice&&<div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm font-medium text-emerald-800">{notice}</div>}
     {error&&<div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm font-medium text-red-700"><AlertTriangle className="mr-2 inline" size={16}/>{error}</div>}
+    {persistenceError&&<div role="alert" className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm font-medium text-red-700"><AlertTriangle className="mr-2 inline" size={16}/>{persistenceError}</div>}
 
     <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
       <div className="mb-4 flex items-center justify-between gap-4">

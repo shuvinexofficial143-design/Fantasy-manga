@@ -15,6 +15,7 @@ export function createProject(name="My Cinematic Project"):Project{
     continuityMode:"strict",
     novelImport:{
       novelTitle:"",
+      sceneDetail:"standard",
       locked:false,
       currentChapter:1,
       autoGenerate:true,

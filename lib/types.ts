@@ -55,6 +55,7 @@ export type NovelChapter={
 
 export type NovelImportState={
   novelTitle:string;
+  sceneDetail?:"standard"|"highest"|"ultra";
   locked:boolean;
   sourceOrigin?:string;
   firstChapterUrl?:string;
