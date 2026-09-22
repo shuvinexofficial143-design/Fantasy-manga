@@ -80,7 +80,7 @@ export function CinematicProductionStudio(){
           </button>
         </div>
         <div className="mt-4 flex flex-wrap gap-2">
-          {chapters.length?[...chapters].sort((a,b)=>a.number-b.number).map((chapter)=><button key={chapter.number} onClick={()=>router.push("/novel?chapter="+chapter.number)} className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-bold text-slate-700 hover:border-violet-200 hover:bg-violet-50">Chapter {chapter.number} · {chapter.status}</button>):<span className="text-xs text-slate-400">No chapters yet.</span>}
+          {chapters.length?[...chapters].sort((a,b)=>a.number-b.number).map((chapter)=><button key={chapter.number} onClick={()=>{updateProject((item)=>({...item,novelImport:{...(item.novelImport||{novelTitle:"",locked:false,currentChapter:chapter.number,autoGenerate:false,chapters:[],errorLog:[]}),currentChapter:chapter.number},updatedAt:new Date().toISOString()}));router.push("/novel?chapter="+chapter.number)}} className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-bold text-slate-700 hover:border-violet-200 hover:bg-violet-50">Chapter {chapter.number} · {chapter.status}</button>):<span className="text-xs text-slate-400">No chapters yet.</span>}
         </div>
       </div>
 
@@ -90,7 +90,7 @@ export function CinematicProductionStudio(){
         <div className="mt-3 min-h-20 rounded-xl bg-slate-50 p-3 text-sm leading-6 text-slate-600">
           {latestChapter?.explainer?latestChapter.explainer.slice(0,420)+(latestChapter.explainer.length>420?"…":""):"Create a chapter, paste/scan the story, then generate the copy-ready explainer. No voice/TTS and no timeline timestamps."}
         </div>
-        {latestChapter&&<button onClick={()=>router.push("/novel?chapter="+latestChapter.number)} className="mt-3 text-xs font-black text-violet-700">Open Chapter Workspace →</button>}
+        {latestChapter&&<button onClick={()=>{updateProject((item)=>({...item,novelImport:{...(item.novelImport||{novelTitle:"",locked:false,currentChapter:latestChapter.number,autoGenerate:false,chapters:[],errorLog:[]}),currentChapter:latestChapter.number},updatedAt:new Date().toISOString()}));router.push("/novel?chapter="+latestChapter.number)}} className="mt-3 text-xs font-black text-violet-700">Open Chapter Workspace →</button>}
       </div>
     </section>
     {tab==="story"&&<StoryPanel project={project} busy={busy} onPatch={patch} onPlan={()=>void planStory()} onStyleReference={(e)=>void uploadStyle(e)}/>} {tab==="characters"&&<CharactersPanel characters={project.characters} busy={busy} onAdd={addCharacter} onUpdate={updateCharacter} onUpload={(id,e)=>void uploadCharacter(id,e)}/>} {tab==="locations"&&<LocationsPanel locations={project.locations} busy={busy} onAdd={addLocation} onUpdate={updateLocation} onUpload={(id,e)=>void uploadLocation(id,e)}/>} 
