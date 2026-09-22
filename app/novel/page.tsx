@@ -1,6 +1,6 @@
 "use client";
 
-import {useEffect,useMemo,useState} from "react";
+import {useMemo,useState} from "react";
 import {AlertTriangle,BookOpenCheck,Copy,ExternalLink,Globe2,Loader2,Lock,LockOpen,Play,RefreshCw,ScanSearch,Sparkles} from "lucide-react";
 import {buildCinematicPrompt,hashString} from "@/lib/cinematic";
 import {createImage} from "@/lib/default-project";
@@ -78,12 +78,6 @@ export default function NovelImportPage(){
   const [progress,setProgress]=useState("");
   const [notice,setNotice]=useState("");
   const [error,setError]=useState("");
-
-  useEffect(()=>{
-    const value=new URLSearchParams(window.location.search).get("chapter");
-    const parsed=Number(value);
-    if(Number.isInteger(parsed)&&parsed>0)setChapterNumber(parsed);
-  },[]);
 
   const selectedChapter=useMemo(()=>novel.chapters.find((item)=>item.number===chapterNumber),[novel.chapters,chapterNumber]);
   const latestChapter=useMemo(()=>[...novel.chapters].sort((a,b)=>b.number-a.number)[0],[novel.chapters]);
