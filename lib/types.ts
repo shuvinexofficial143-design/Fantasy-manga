@@ -46,6 +46,8 @@ export type NovelChapter={
   sourceText:string;
   nextUrl?:string;
   summary?:string;
+  explainer?:string;
+  visualStyle?:string;
   scannedAt:string;
   analyzedAt?:string;
   sceneIds:string[];
