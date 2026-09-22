@@ -19,7 +19,11 @@ export default function ImagesPage(){
   const chapter=novel.chapters.find((item)=>item.number===novel.currentChapter);
   const scenes=(chapter?.sceneIds||[]).map((id)=>project.images.find((image)=>image.id===id)).filter((image):image is CinematicImage=>Boolean(image));
 
-  const commit=(next:Project)=>setState((current)=>({...current,projects:current.projects.map((item)=>item.id===next.id?next:item)}));
+  const commit=(next:Project)=>setState((current)=>({...current,projects:current.projects.map((item)=>{
+    if(item.id!==next.id)return item;
+    const selected=item.novelImport?.currentChapter??next.novelImport?.currentChapter;
+    return next.novelImport&&selected?{...next,novelImport:{...next.novelImport,currentChapter:selected}}:next;
+  })}));
 
   const renderScene=async(sceneId:string,working:Project)=>{
     const ordered=[...working.images].sort((a,b)=>a.sceneNumber-b.sceneNumber);
