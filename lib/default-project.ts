@@ -14,6 +14,7 @@ export function createProject(name="My Cinematic Project"):Project{
     worldNotes:"",
     continuityMode:"strict",
     visualDensity:"standard",
+    imageStylePreset:"reference-video",
     novelImport:{
       novelTitle:"",
       locked:false,
@@ -39,7 +40,7 @@ export function createImage(sceneNumber:number,sourceText:string,characterStates
     title:short,
     sourceText:cleaned,
     prompt:"",
-    negativePrompt:"comic panels, manga page layout, webtoon panels, split frame, gutters, speech bubbles, captions, UI, watermark, logo, text, duplicate character, wrong costume, changed face, changed hairstyle, inconsistent architecture",
+    negativePrompt:"photorealistic photography, live-action photo, plastic 3D CGI, game-engine render, western cartoon, chibi, flat low-detail anime screenshot, comic panels, manga page layout, webtoon panels, split frame, gutters, speech bubbles, captions, UI, watermark, logo, text, duplicate character, wrong costume, changed face, changed hairstyle, inconsistent architecture",
     status:"idle",
     cameraShot:"medium wide shot",
     cameraAngle:"eye level",
