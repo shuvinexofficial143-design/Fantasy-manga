@@ -109,7 +109,7 @@ export default function NovelImportPage(){
     return ordered.filter((scene)=>ids.has(scene.id)).map((scene,index)=>{
       const sceneIndex=ordered.findIndex((item)=>item.id===scene.id);
       const previous=sceneIndex>0?ordered[sceneIndex-1]:undefined;
-      const prompt=scene.prompt||buildCinematicPrompt({scene,project,previousScene:previous});
+      const prompt=buildCinematicPrompt({scene,project,previousScene:previous});
       return `Visual ${index+1}\nStory Moment: ${scene.sourceText}\n\nImage Prompt:\n${prompt}`;
     }).join("\n\n---\n\n");
   };
