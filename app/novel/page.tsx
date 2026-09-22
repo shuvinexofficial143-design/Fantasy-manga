@@ -5,6 +5,7 @@ import {AlertTriangle,BookOpenCheck,Copy,FileText,Globe2,Loader2,Play,RefreshCw,
 import {buildCinematicPrompt,hashString} from "@/lib/cinematic";
 import {chapterSourceKey,splitChapterForDensity} from "@/lib/chapters";
 import {createImage} from "@/lib/default-project";
+import {projectImageStyle} from "@/lib/style-presets";
 import {replaceChapterScenes} from "@/lib/novel-workflow";
 import {findLocation,findNamed,namedSceneCharacters,novelReferences} from "@/lib/novel-continuity";
 import type {ChapterAnalysisProgress,Character,CinematicImage,Location,NovelChapter,NovelImportState,Project} from "@/lib/types";
@@ -162,7 +163,7 @@ export default function NovelImportPage(){
     const density=project.visualDensity;
     const parts=splitChapterForDensity(chapterText,density);
     if(!parts.length){setError("Chapter को analysis parts में नहीं बाँटा जा सका।");return}
-    const sourceKey=chapterSourceKey(chapterText,density);
+    const sourceKey=chapterSourceKey(chapterText,density,project.imageStylePreset);
 
     setBusy("paste");setError("");setNotice("");
     let working=project;
@@ -241,7 +242,7 @@ export default function NovelImportPage(){
           chapterText:parts[partIndex],
           existingCharacters:working.characters,
           existingLocations:working.locations,
-          visualStyle:working.visualStyle,
+          visualStyle:projectImageStyle(working),
           visualDensity:density,
           previousSummary,
           previousSegmentSummary:partSummaries.at(-1)||""
@@ -264,7 +265,7 @@ export default function NovelImportPage(){
           scene.cameraAngle=item.cameraAngle||scene.cameraAngle;
           scene.cameraDirection=item.cameraDirection||scene.cameraDirection;
           scene.continuityNotes=item.continuityNotes||("Continue chapter "+number+" state from the previous visual.");
-          scene.prompt=item.imagePrompt||"";
+          scene.prompt="";
           return scene;
         });
 
@@ -292,7 +293,7 @@ export default function NovelImportPage(){
           sourceText:chapterText,
           summary:partSummaries.filter(Boolean).join(" "),
           explainer:partExplainers.filter(Boolean).join("\n\n"),
-          visualStyle:analysis.visualStyle||working.visualStyle,
+          visualStyle:analysis.visualStyle||projectImageStyle(working),
           visualDensity:density,
           sceneIds:partSceneIds.flat(),
           status:"analyzing",
