@@ -1,6 +1,6 @@
 import {NextResponse} from "next/server";
 import {generateVertexText} from "@/lib/vertex-text";
-import type {Character,Location} from "@/lib/types";
+import type {Character,Location,VisualDensity} from "@/lib/types";
 
 type Body={
   chapterNumber?:unknown;
@@ -10,6 +10,7 @@ type Body={
   previousSummary?:unknown;
   previousSegmentSummary?:unknown;
   visualStyle?:unknown;
+  visualDensity?:unknown;
   mode?:unknown;
   segmentIndex?:unknown;
   segmentCount?:unknown;
@@ -22,12 +23,30 @@ function cleanJson(value:string){
 }
 function arrayValue(value:unknown){return Array.isArray(value)?value:[]}
 function objectValue(value:unknown){return value&&typeof value==="object"?value as Record<string,unknown>:{}}
+function visualDensityValue(value:unknown):VisualDensity{return value==="highest"||value==="ultra"?value:"standard"}
+const DENSITY_CONFIG:Record<VisualDensity,{label:string;partWords:number;guidance:string}>={
+  standard:{
+    label:"Standard",
+    partWords:520,
+    guidance:"Use detailed micro-beat coverage. For a chapter with density similar to the user's reference story, the whole chapter may naturally land around 50–55 visuals. This is a reference range, never a quota."
+  },
+  highest:{
+    label:"Highest",
+    partWords:390,
+    guidance:"Split more finely than Standard. Preserve separate speaker/listener reactions, distinct gestures, movement phases, object interactions and immediate consequences when they produce genuinely different frozen frames. A similarly dense chapter may naturally land around 60–70 visuals. This is a reference range, never a quota."
+  },
+  ultra:{
+    label:"Ultra Highest",
+    partWords:285,
+    guidance:"Use maximum story-faithful granularity. Separate setup, action, reaction and consequence when visually distinct; use meaningful close reaction beats, gaze changes, hand/prop interactions, insert details, reveals and environmental beats when supported by the prose. A similarly dense chapter may approach roughly 90 visuals. Never create duplicate or invented filler to reach that number."
+  }
+};
 
 // Keep each model response small enough to return dense scene plans as valid JSON.
-function chapterParts(text:string){
+function chapterParts(text:string,maxWords:number){
   const words=text.trim().split(/\s+/);
   const parts:string[]=[];
-  for(let i=0;i<words.length;i+=600)parts.push(words.slice(i,i+600).join(" "));
+  for(let i=0;i<words.length;i+=maxWords)parts.push(words.slice(i,i+maxWords).join(" "));
   return parts;
 }
 
@@ -42,12 +61,14 @@ export async function POST(req:Request){
     const existingLocations=arrayValue(body.existingLocations) as Location[];
     const previousSummary=stringValue(body.previousSummary);
     const previousSegmentSummary=stringValue(body.previousSegmentSummary);
+    const visualDensity=visualDensityValue(body.visualDensity);
+    const densityConfig=DENSITY_CONFIG[visualDensity];
     const mode=stringValue(body.mode);
     const segmentIndex=Math.max(0,Math.trunc(Number(body.segmentIndex)||0));
     const segmentCount=Math.max(1,Math.trunc(Number(body.segmentCount)||1));
     const requestedVisualStyle=stringValue(body.visualStyle,"Cinematic realistic storytelling, premium movie-still composition, natural human faces, realistic skin and materials, physically believable lighting, natural color grading, rich environment detail, 16:9 framing");
 
-    const parts=mode==="chunk"?[chapterText]:chapterParts(chapterText);
+    const parts=mode==="chunk"?[chapterText]:chapterParts(chapterText,densityConfig.partWords);
     const results:Record<string,unknown>[]=[];
     for(let partIndex=0;partIndex<parts.length;partIndex++){
     const partText=parts[partIndex];
@@ -62,9 +83,11 @@ export async function POST(req:Request){
       "For every recurring character write specific, stable visual traits (approximate age, face shape, hair, build, clothing colors and distinguishing marks) found in the text. Do not invent traits absent from the text; mark unknown details as needing a consistent design. Never replace established traits with generic placeholders.",
       "Every scene must use the exact canonical name from your characters and locations arrays (or existing arrays). Include every visually present named character. An unchanged setting must keep the same location name; specify a new location only when the text moves there.",
       `VISUAL PLANNING: This is segment ${displayIndex+1} of ${displayCount}. There is NO fixed chapter image count, NO hard words-per-image rule and NO timing rule. Use MICRO-VISUAL-BEAT granularity: prefer the smallest story-faithful moment that creates a genuinely different image while still being understandable on its own.`,
+      `SELECTED VISUAL DENSITY: ${densityConfig.label}. ${densityConfig.guidance}`,
+      "ADAPTIVE RANGE RULE: the reference visual counts describe a chapter with similar length and event density, not a fixed minimum or maximum. Let the actual story decide the final count. Never omit a real visual beat merely to stay below the reference range, and never invent or duplicate beats merely to reach it.",
       "MICRO-BEAT SPLITTING: Create a new visual when the viewer should see a changed action, pose, gesture, gaze, facial reaction, speaker/listener emphasis, entrance or exit, movement to a new position, important object interaction, object/detail reveal, environment reveal, system/power/status event, discovery, decision, emotional turn, location transition, or meaningful before/after state. A short reaction shot or insert/detail shot is valid when it adds story information.",
       "SEQUENTIAL ACTION RULE: If a description contains A happens, THEN B reacts, THEN C changes, do not force all three into one impossible frozen frame. Split them into separate ordered visuals when each step is visually distinct. Likewise, do not merge a setup, the decisive action, and its immediate consequence when they would require different poses or focal subjects.",
-      "DENSITY CALIBRATION, NOT A QUOTA: ordinary dialogue/action novel prose at roughly this segment size will often deserve several micro visuals rather than a handful of broad summaries; a dense 350–500 word segment can naturally land around 7–11 distinct frames. This is only a calibration example, never a target to pad toward. Use fewer when the prose is visually static and more when it contains many real state changes.",
+      "DENSITY EXECUTION: obey the selected density mode consistently across all segments of this chapter. Higher modes must produce finer story-faithful separation than lower modes, while continuity and anti-filler rules remain equally strict.",
       "ANTI-FILLER: Never split the exact same pose/composition into duplicates just to increase count. Two adjacent lines may share one image only when they can truthfully exist in the same frozen cinematic moment with the same focal subject, pose, location state and emotional beat. Never invent actions, characters, props, locations or reactions not supported by the chapter.",
       `GLOBAL VISUAL STYLE: ${requestedVisualStyle}. Keep this same visual language across the whole chapter and future chapters unless the user explicitly changes it.`,
       "EXPLAINER RULES: Write natural, polished narration that explains the story like a strong human storyteller. Do not rewrite the chapter line-by-line. Preserve important events, motivations, relationships, causes, consequences, reveals and emotional changes. Do not merely describe what the image shows. Do not include timestamps, seconds, durations, editing cues, voice instructions, TTS instructions or audio instructions.",
