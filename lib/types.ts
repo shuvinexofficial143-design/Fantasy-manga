@@ -1,5 +1,6 @@
 export type ReferenceImage={id:string;name:string;dataUrl:string};
 export type VisualDensity="standard"|"highest"|"ultra";
+export type ImageStylePreset="reference-video"|"cinematic-realistic"|"custom";
 
 export type Character={
   id:string;
@@ -117,6 +118,7 @@ export type Project={
   worldNotes:string;
   continuityMode:"strict"|"balanced";
   visualDensity:VisualDensity;
+  imageStylePreset:ImageStylePreset;
   styleReferenceImage?:string;
   novelImport?:NovelImportState;
   characters:Character[];
