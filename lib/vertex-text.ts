@@ -95,7 +95,13 @@ async function accessToken(account:ServiceAccount){
   return json.access_token;
 }
 
-export async function generateVertexText(prompt:string){
+type GenerateVertexTextOptions={
+  temperature?:number;
+  seed?:number;
+  maxOutputTokens?:number;
+};
+
+export async function generateVertexText(prompt:string,options:GenerateVertexTextOptions={}){
   const project=projectId();
   const account=parseServiceAccount();
   const key=apiKey();
@@ -124,7 +130,13 @@ export async function generateVertexText(prompt:string){
     headers,
     body:JSON.stringify({
       contents:[{role:"user",parts:[{text:prompt}]}],
-      generationConfig:{temperature:0.2,responseMimeType:"application/json"}
+      generationConfig:{
+        temperature:options.temperature??0.2,
+        candidateCount:1,
+        responseMimeType:"application/json",
+        ...(Number.isFinite(options.seed)?{seed:Math.max(1,Math.min(2147483647,Math.trunc(options.seed!)))}:{}),
+        ...(Number.isFinite(options.maxOutputTokens)?{maxOutputTokens:Math.max(256,Math.trunc(options.maxOutputTokens!))}:{})
+      }
     }),
     signal:AbortSignal.timeout(timeoutMs),
     cache:"no-store"
