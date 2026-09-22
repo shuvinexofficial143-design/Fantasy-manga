@@ -69,7 +69,7 @@ export function AppShell({children}:{children:React.ReactNode}){
 
     <main className="min-w-0">
       <header className="sticky top-0 z-20 flex h-16 items-center justify-between border-b border-slate-200 bg-white/90 px-4 backdrop-blur-xl md:px-7">
-        <div><div className="text-sm font-semibold">{project.storyTitle||project.name}</div><div className="text-xs text-slate-500">{project.visualStyle} · {project.aspectRatio} · {project.visualDensity} density · {project.continuityMode} continuity</div></div>
+        <div><div className="text-sm font-semibold">{project.storyTitle||project.name}</div><div className="text-xs text-slate-500">{project.imageStylePreset} style · {project.aspectRatio} · {project.visualDensity} density · {project.continuityMode} continuity</div></div>
         <Link href="/projects" className="text-xs font-semibold text-violet-700">Projects & Chapters</Link>
       </header>
       <div className="gridbg min-h-[calc(100vh-4rem)] p-4 md:p-7">{children}</div>
