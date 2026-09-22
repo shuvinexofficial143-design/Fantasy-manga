@@ -32,6 +32,11 @@ export function AppShell({children}:{children:React.ReactNode}){
   const novel=project.novelImport||{novelTitle:"",locked:false,currentChapter:1,autoGenerate:false,chapters:[],errorLog:[]};
   const chapters=[...(novel.chapters||[])].sort((a,b)=>a.number-b.number);
   const activeChapter=chapters.find((chapter)=>chapter.number===novel.currentChapter);
+  const activeChapterLabel=activeChapter?(()=>{
+    const base="Chapter "+activeChapter.number;
+    const title=(activeChapter.title||"").trim();
+    return title&&title.toLowerCase()!==base.toLowerCase()?base+" · "+title+" · "+activeChapter.status:base+" · "+activeChapter.status;
+  })():"Create a chapter to start the workflow";
 
   const createChapter=()=>{
     const number=nextChapterNumber(chapters);
@@ -84,7 +89,7 @@ export function AppShell({children}:{children:React.ReactNode}){
       <header className="sticky top-0 z-20 flex min-h-16 items-center justify-between gap-4 border-b border-slate-200 bg-white/90 px-4 py-3 backdrop-blur-xl md:px-7">
         <div className="min-w-0">
           <div className="truncate text-sm font-black">{project.name}</div>
-          <div className="truncate text-xs text-slate-500">{activeChapter?"Chapter "+activeChapter.number+" · "+(activeChapter.title||"Untitled")+" · "+activeChapter.status:"Create a chapter to start the workflow"}</div>
+          <div className="truncate text-xs text-slate-500">{activeChapterLabel}</div>
         </div>
         <Link href="/chapters" className="shrink-0 text-xs font-bold text-violet-700">Switch Chapter</Link>
       </header>
