@@ -463,34 +463,6 @@ export default function NovelImportPage(){
       </div>}
     </section>
 
-    <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-      <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
-        <div>
-          <h2 className="font-black">Built-in Import Sources</h2>
-          <p className="mt-1 text-sm text-slate-500">URL डालते ही source auto-detect होता है। Unsupported sources को importer जानबूझकर try नहीं करेगा.</p>
-        </div>
-        {detectedSource&&<div className={"rounded-full px-3 py-1.5 text-xs font-bold "+(detectedSource.status==="supported"?"bg-emerald-50 text-emerald-700":detectedSource.status==="conditional"?"bg-amber-50 text-amber-700":"bg-red-50 text-red-700")}>
-          Detected: {detectedSource.name} · {detectedSource.status}
-        </div>}
-      </div>
-      <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-        {NOVEL_SOURCES.map((source)=><div key={source.id} className="rounded-xl border border-slate-200 p-4">
-          <div className="flex items-center justify-between gap-3">
-            <div className="font-bold">{source.name}</div>
-            <span className={"rounded-full px-2.5 py-1 text-[10px] font-black uppercase "+(source.status==="supported"?"bg-emerald-50 text-emerald-700":source.status==="conditional"?"bg-amber-50 text-amber-700":"bg-red-50 text-red-700")}>{source.status}</span>
-          </div>
-          <div className="mt-1 text-xs font-semibold text-violet-700">{source.method}</div>
-          <p className="mt-2 text-xs leading-5 text-slate-500">{source.note}</p>
-          {source.domains.length>0&&<div className="mt-2 text-[11px] text-slate-400">{source.domains.join(", ")}</div>}
-        </div>)}
-      </div>
-    </section>
-
-    {progress&&<div className="rounded-2xl border border-violet-200 bg-violet-50 p-4 text-sm text-violet-800"><Loader2 className="mr-2 inline animate-spin" size={16}/>{progress}</div>}
-    {notice&&<div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm font-medium text-emerald-800">{notice}</div>}
-    {error&&<div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm font-medium text-red-700"><AlertTriangle className="mr-2 inline" size={16}/>{error}</div>}
-    {persistenceError&&<div role="alert" className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm font-medium text-red-700"><AlertTriangle className="mr-2 inline" size={16}/>{persistenceError}</div>}
-
     <section className="grid gap-4 lg:grid-cols-2">
       <div className="rounded-2xl border border-emerald-200 bg-white p-5 shadow-sm">
         <div className="flex items-center justify-between gap-3">
@@ -520,8 +492,36 @@ export default function NovelImportPage(){
     </section>
 
     <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+      <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
+        <div>
+          <h2 className="font-black">Built-in Import Sources</h2>
+          <p className="mt-1 text-sm text-slate-500">URL डालते ही source auto-detect होता है। Unsupported sources को importer जानबूझकर try नहीं करेगा.</p>
+        </div>
+        {detectedSource&&<div className={"rounded-full px-3 py-1.5 text-xs font-bold "+(detectedSource.status==="supported"?"bg-emerald-50 text-emerald-700":detectedSource.status==="conditional"?"bg-amber-50 text-amber-700":"bg-red-50 text-red-700")}>
+          Detected: {detectedSource.name} · {detectedSource.status}
+        </div>}
+      </div>
+      <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+        {NOVEL_SOURCES.map((source)=><div key={source.id} className="rounded-xl border border-slate-200 p-4">
+          <div className="flex items-center justify-between gap-3">
+            <div className="font-bold">{source.name}</div>
+            <span className={"rounded-full px-2.5 py-1 text-[10px] font-black uppercase "+(source.status==="supported"?"bg-emerald-50 text-emerald-700":source.status==="conditional"?"bg-amber-50 text-amber-700":"bg-red-50 text-red-700")}>{source.status}</span>
+          </div>
+          <div className="mt-1 text-xs font-semibold text-violet-700">{source.method}</div>
+          <p className="mt-2 text-xs leading-5 text-slate-500">{source.note}</p>
+          {source.domains.length>0&&<div className="mt-2 text-[11px] text-slate-400">{source.domains.join(", ")}</div>}
+        </div>)}
+      </div>
+    </section>
+
+    {progress&&<div className="rounded-2xl border border-violet-200 bg-violet-50 p-4 text-sm text-violet-800"><Loader2 className="mr-2 inline animate-spin" size={16}/>{progress}</div>}
+    {notice&&<div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm font-medium text-emerald-800">{notice}</div>}
+    {error&&<div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm font-medium text-red-700"><AlertTriangle className="mr-2 inline" size={16}/>{error}</div>}
+    {persistenceError&&<div role="alert" className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm font-medium text-red-700"><AlertTriangle className="mr-2 inline" size={16}/>{persistenceError}</div>}
+
+    <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
       <div className="mb-4 flex items-center justify-between gap-4">
-        <div><h2 className="font-black">Imported Chapters</h2><p className="mt-1 text-sm text-slate-500">हर chapter का source, analysis और generated scene state अलग save होता है.</p></div>
+        <div><h2 className="font-black">Project Chapters</h2><p className="mt-1 text-sm text-slate-500">इस project के सभी chapters, explainer और visual state यहाँ अलग-अलग save होते हैं.</p></div>
         <BookOpenCheck className="text-violet-600"/>
       </div>
       <div className="space-y-3">
