@@ -101,7 +101,11 @@ export default function NovelImportPage(){
   const selectedChapter=useMemo(()=>novel.chapters.find((item)=>item.number===chapterNumber),[novel.chapters,chapterNumber]);
   const effectiveChapterText=(manualText.trim()||selectedChapter?.sourceText.trim()||"");
   const analysisPartCount=useMemo(()=>effectiveChapterText.length>=120?splitChapterForDensity(effectiveChapterText,project.visualDensity).length:0,[effectiveChapterText,project.visualDensity]);
-  const commit=(next:Project)=>setState((current)=>({...current,projects:current.projects.map((item)=>item.id===next.id?next:item)}));
+  const commit=(next:Project)=>setState((current)=>({...current,projects:current.projects.map((item)=>{
+    if(item.id!==next.id)return item;
+    const selected=item.novelImport?.currentChapter??next.novelImport?.currentChapter;
+    return next.novelImport&&selected?{...next,novelImport:{...next.novelImport,currentChapter:selected}}:next;
+  })}));
   const patchImport=(value:Partial<NovelImportState>)=>commit({...project,novelImport:{...novel,...value},updatedAt:new Date().toISOString()});
   const analyzePasted=async()=>{
     const number=Math.max(1,Math.trunc(chapterNumber||1));
