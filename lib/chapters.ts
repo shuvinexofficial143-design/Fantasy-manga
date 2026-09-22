@@ -1,6 +1,6 @@
 import type {ImageStylePreset,NovelChapter,VisualDensity} from "./types";
 
-const ANALYSIS_PROFILE="micro-visual-v4-style-lock";
+const ANALYSIS_PROFILE="micro-visual-v5-stable-density";
 
 export const VISUAL_DENSITY_OPTIONS=[
   {
@@ -99,6 +99,25 @@ export function splitChapterLogically(text:string,minWords=320,targetWords=420,m
     else parts.push(tail);
   }
   return parts;
+}
+
+
+const DENSITY_COVERAGE:Record<VisualDensity,{wordsPerVisual:number;min:number;max:number}>={
+  standard:{wordsPerVisual:26.5,min:8,max:24},
+  highest:{wordsPerVisual:21,min:9,max:28},
+  ultra:{wordsPerVisual:15.5,min:9,max:30}
+};
+
+export function visualCoverageTarget(text:string,density:VisualDensity="standard"){
+  const words=wordCount(text);
+  const config=DENSITY_COVERAGE[density]||DENSITY_COVERAGE.standard;
+  const target=Math.max(config.min,Math.min(config.max,Math.round(words/config.wordsPerVisual)));
+  return {
+    words,
+    target,
+    min:Math.max(1,target-1),
+    max:target+1
+  };
 }
 
 export function splitChapterForDensity(text:string,density:VisualDensity="standard"){
