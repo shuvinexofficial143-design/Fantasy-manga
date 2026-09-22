@@ -94,7 +94,27 @@ export async function POST(req:Request){
     results.push(JSON.parse(cleanJson(raw)) as Record<string,unknown>);
     }
     const summary=results.map((item)=>stringValue(item.summary)).filter(Boolean).join(" ");
-    const explainer=results.map((item)=>stringValue(item.explainer)).filter(Boolean).join("\n\n");
+    const draftExplainer=results.map((item)=>stringValue(item.explainer)).filter(Boolean).join("\n\n");
+    let explainer=draftExplainer;
+    if(parts.length>1&&draftExplainer){
+      try{
+        const polishPrompt=[
+          "You are the final narration editor for a professional YouTube story explainer.",
+          "Return ONLY valid JSON with exactly this shape: "+JSON.stringify({explainer:""}),
+          "Merge the draft segments below into ONE seamless, copy-ready narration. Remove repeated introductions, repeated facts and awkward segment boundaries. Preserve the original story facts and chronology; do not invent events or omit important causes, motivations, reveals or consequences.",
+          "Keep the narration natural and engaging, not a line-by-line rewrite and not a description of the visuals.",
+          "Do NOT include timestamps, seconds, durations, editing instructions, voice/TTS/audio instructions, scene numbers or image instructions.",
+          previousSummary?"Previous chapter context (for continuity only): "+previousSummary:"",
+          "DRAFT NARRATION:",
+          draftExplainer
+        ].filter(Boolean).join("\n\n");
+        const polishedRaw=await generateVertexText(polishPrompt);
+        const polished=objectValue(JSON.parse(cleanJson(polishedRaw)));
+        explainer=stringValue(polished.explainer,draftExplainer);
+      }catch(polishError){
+        console.warn("Explainer polish pass failed; using segment narration",polishError);
+      }
+    }
     const visualStyle=results.map((item)=>stringValue(item.visualStyle)).find(Boolean)||requestedVisualStyle;
 
     const characters=results.flatMap((item)=>arrayValue(item.characters)).map((value)=>{
