@@ -1,6 +1,6 @@
-import type {NovelChapter,VisualDensity} from "./types";
+import type {ImageStylePreset,NovelChapter,VisualDensity} from "./types";
 
-const ANALYSIS_PROFILE="micro-visual-v3-density";
+const ANALYSIS_PROFILE="micro-visual-v4-style-lock";
 
 export const VISUAL_DENSITY_OPTIONS=[
   {
@@ -45,14 +45,14 @@ export function createDraftChapter(number:number):NovelChapter{
   };
 }
 
-export function chapterSourceKey(text:string,density:VisualDensity="standard"){
+export function chapterSourceKey(text:string,density:VisualDensity="standard",stylePreset:ImageStylePreset="reference-video"){
   const normalized=text.trim().replace(/\s+/g," ");
   let hash=2166136261;
   for(let i=0;i<normalized.length;i+=1){
     hash^=normalized.charCodeAt(i);
     hash=Math.imul(hash,16777619);
   }
-  return `${ANALYSIS_PROFILE}-${density}-${normalized.length}-${(hash>>>0).toString(36)}`;
+  return `${ANALYSIS_PROFILE}-${density}-${stylePreset}-${normalized.length}-${(hash>>>0).toString(36)}`;
 }
 
 function wordCount(text:string){return text.trim()?text.trim().split(/\s+/).length:0}
