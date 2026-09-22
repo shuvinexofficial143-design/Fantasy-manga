@@ -3,7 +3,7 @@
 import {useMemo,useState} from "react";
 import {AlertTriangle,BookOpenCheck,Copy,FileText,Globe2,Loader2,Play,RefreshCw,Sparkles} from "lucide-react";
 import {buildCinematicPrompt,hashString} from "@/lib/cinematic";
-import {chapterSourceKey,splitChapterLogically} from "@/lib/chapters";
+import {chapterSourceKey,splitChapterForDensity} from "@/lib/chapters";
 import {createImage} from "@/lib/default-project";
 import {replaceChapterScenes} from "@/lib/novel-workflow";
 import {findLocation,findNamed,namedSceneCharacters,novelReferences} from "@/lib/novel-continuity";
@@ -97,7 +97,7 @@ export default function NovelImportPage(){
 
   const selectedChapter=useMemo(()=>novel.chapters.find((item)=>item.number===chapterNumber),[novel.chapters,chapterNumber]);
   const effectiveChapterText=(manualText.trim()||selectedChapter?.sourceText.trim()||"");
-  const analysisPartCount=useMemo(()=>effectiveChapterText.length>=120?splitChapterLogically(effectiveChapterText).length:0,[effectiveChapterText]);
+  const analysisPartCount=useMemo(()=>effectiveChapterText.length>=120?splitChapterForDensity(effectiveChapterText,project.visualDensity).length:0,[effectiveChapterText,project.visualDensity]);
   const latestChapter=useMemo(()=>[...novel.chapters].sort((a,b)=>b.number-a.number)[0],[novel.chapters]);
   const commit=(next:Project)=>setState((current)=>({...current,projects:current.projects.map((item)=>item.id===next.id?next:item)}));
   const patchImport=(value:Partial<NovelImportState>)=>commit({...project,novelImport:{...novel,...value},updatedAt:new Date().toISOString()});
@@ -159,9 +159,10 @@ export default function NovelImportPage(){
     const chapterText=effectiveChapterText;
     if(chapterText.length<120){setError("कम से कम कुछ paragraphs वाला chapter text paste करें।");return}
 
-    const parts=splitChapterLogically(chapterText);
+    const density=project.visualDensity;
+    const parts=splitChapterForDensity(chapterText,density);
     if(!parts.length){setError("Chapter को analysis parts में नहीं बाँटा जा सका।");return}
-    const sourceKey=chapterSourceKey(chapterText);
+    const sourceKey=chapterSourceKey(chapterText,density);
 
     setBusy("paste");setError("");setNotice("");
     let working=project;
@@ -210,6 +211,7 @@ export default function NovelImportPage(){
           title:oldChapter?.title||("Chapter "+number),
           url:"manual://chapter-"+number,
           sourceText:chapterText,
+          visualDensity:density,
           scannedAt:new Date().toISOString(),
           sceneIds:[],
           status:"analyzing",
@@ -240,6 +242,7 @@ export default function NovelImportPage(){
           existingCharacters:working.characters,
           existingLocations:working.locations,
           visualStyle:working.visualStyle,
+          visualDensity:density,
           previousSummary,
           previousSegmentSummary:partSummaries.at(-1)||""
         });
@@ -290,6 +293,7 @@ export default function NovelImportPage(){
           summary:partSummaries.filter(Boolean).join(" "),
           explainer:partExplainers.filter(Boolean).join("\n\n"),
           visualStyle:analysis.visualStyle||working.visualStyle,
+          visualDensity:density,
           sceneIds:partSceneIds.flat(),
           status:"analyzing",
           analysisProgress:checkpoint,
@@ -483,7 +487,7 @@ export default function NovelImportPage(){
           <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
             <div className="min-w-0">
               <div className="font-bold">Chapter {chapter.number} · {chapter.title}</div>
-              <div className="mt-1 flex flex-wrap gap-2 text-xs text-slate-500"><span>{chapter.sourceText.length.toLocaleString()} chars scanned</span><span>·</span><span>{chapter.sceneIds.length} adaptive visuals</span><span>·</span><span className="font-semibold uppercase">{chapter.status}</span></div>
+              <div className="mt-1 flex flex-wrap gap-2 text-xs text-slate-500"><span>{chapter.sourceText.length.toLocaleString()} chars scanned</span><span>·</span><span>{chapter.sceneIds.length} adaptive visuals</span><span>·</span><span className="font-semibold capitalize">{chapter.visualDensity||"standard"} density</span><span>·</span><span className="font-semibold uppercase">{chapter.status}</span></div>
               <div className="mt-2 text-xs font-semibold text-slate-500">Chapter text saved in this project</div>
             </div>
             <div className="flex flex-wrap gap-2">
