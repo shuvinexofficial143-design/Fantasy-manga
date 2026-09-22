@@ -1,4 +1,5 @@
 import type {Character,CinematicImage,Location,Project,SceneCharacterState} from "./types";
+import {projectImageStyle,REFERENCE_VIDEO_NEGATIVE_STYLE} from "./style-presets";
 
 export function aspectRatioToSize(aspectRatio:string){
   if(aspectRatio==="9:16")return {width:768,height:1365};
@@ -36,9 +37,14 @@ export function buildCinematicPrompt({scene,project,previousScene}:{scene:Cinema
   const location=project.locations.find((item)=>item.id===scene.locationId);
   const characterBible=activeCharacters.length?activeCharacters.map(({character,state})=>[`${character.name} (${character.role})`,`fixed identity: ${character.appearance||"use reference identity"}`,`established outfit: ${character.outfit||"preserve reference outfit unless this story beat changes it"}`,character.continuityNotes?`locked character facts: ${character.continuityNotes}`:"",`current state: ${stateText(state,character)}`].filter(Boolean).join("; ")).join("\n"):"No recurring character is required unless the story moment explicitly introduces one.";
   const previousText=previousScene?summarizeSceneContinuity(previousScene,project):"This is the first frame of the sequence; establish the canonical screen geography clearly.";
+  const lockedStyle=projectImageStyle(project);
+  const styleBoundary=project.imageStylePreset==="reference-video"
+    ?`REFERENCE-VIDEO STYLE BOUNDARY: Do not turn this into a photograph or live-action still. Do not use plastic 3D/CGI, western-cartoon proportions, chibi, flat TV-anime screenshot rendering or comic/manga panel layout. Avoid: ${REFERENCE_VIDEO_NEGATIVE_STYLE}.`
+    :"";
   return [
     `Generate exactly ONE complete ${project.aspectRatio} cinematic full-frame image, not a page and not a collage.`,
-    `VISUAL STYLE LOCK: ${project.visualStyle}. Keep the same rendering language, brush/detail level, facial rendering, color science, contrast, atmosphere and production quality across the entire sequence.`,
+    `MASTER ART-DIRECTION LOCK: ${lockedStyle}. This is a hard project constraint, not a suggestion. Keep the same facial-design language, painterly/rendering language, hair and fabric treatment, environment detail, color science, contrast, atmosphere and production quality across every frame.`,
+    styleBoundary,
     project.worldNotes?`WORLD BIBLE: ${project.worldNotes}`:"",
     `CURRENT STORY MOMENT: ${scene.sourceText}`,
     `CURRENT LOCATION: ${location?`${location.name} — ${location.description}; lighting=${location.lighting}; locked facts=${location.continuityNotes||"preserve architecture and landmark placement"}`:"Continue the previous location unless the story clearly changes it."}`,
@@ -49,7 +55,7 @@ export function buildCinematicPrompt({scene,project,previousScene}:{scene:Cinema
     `CONTINUITY STRENGTH: ${scene.continuityStrength}/100. Identity, costume, injuries, carried props, location geometry, time of day, light direction, character count and screen geography are hard constraints. Only story-authorized action, pose, expression and camera framing should change.`,
     "REFERENCE PRIORITY: character master references establish exact identity; location master establishes environment; the immediately previous generated frame establishes pose progression, injuries, props, screen direction and background continuity. Advance the action by exactly one beat.",
     "ABSOLUTE CONSISTENCY RULES: never invent extra recurring characters; never remove a character who is still present; never change face, hairstyle, age, body proportions, outfit colors/design, weapon, injury side, jewelry or major prop unless the story says so; preserve background landmarks and relative positions; preserve left/right/foreground/background geography; if someone exits, keep them absent until the story brings them back.",
-    "COMPOSITION: premium cinematic painting / studio keyframe, one unified frame, strong subject hierarchy, intentional lens, depth, atmospheric perspective, polished lighting, refined color grading and production-ready detail.",
+    "COMPOSITION: one premium animated-film keyframe, one unified frame, strong subject hierarchy, intentional lens, depth, atmospheric perspective, polished volumetric lighting, refined color grading and production-ready detail. The result must feel authored by the same art team as every neighboring frame.",
     "ABSOLUTE LAYOUT RULE: NOT manga panels, NOT webtoon panels, NOT comic page. No borders, gutters, split canvas, speech bubbles, captions, text boxes, watermark, logo or UI."
   ].filter(Boolean).join("\n\n");
 }
