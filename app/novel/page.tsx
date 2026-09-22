@@ -1,6 +1,6 @@
 "use client";
 
-import {useEffect,useMemo,useState} from "react";
+import {useMemo,useState} from "react";
 import Link from "next/link";
 import {AlertTriangle,BookOpenCheck,FileText,Loader2,Sparkles} from "lucide-react";
 import {chapterSourceKey,splitChapterForDensity} from "@/lib/chapters";
@@ -89,15 +89,14 @@ function upsertChapter(chapters:NovelChapter[],chapter:NovelChapter){
 export default function NovelImportPage(){
   const {project,setState,persistenceError}=useProject();
   const novel=project.novelImport||emptyImport();
-  const [chapterNumber,setChapterNumber]=useState(Math.max(1,novel.currentChapter||1));
-  const [manualText,setManualText]=useState("");
+  const chapterNumber=Math.max(1,novel.currentChapter||1);
+  const [manualByChapter,setManualByChapter]=useState<Record<number,string>>({});
+  const manualText=manualByChapter[chapterNumber]||"";
+  const setManualText=(value:string)=>setManualByChapter((current)=>({...current,[chapterNumber]:value}));
   const [busy,setBusy]=useState("");
   const [progress,setProgress]=useState("");
   const [notice,setNotice]=useState("");
   const [error,setError]=useState("");
-  const activeChapterNumber=Math.max(1,novel.currentChapter||1);
-
-  useEffect(()=>{setChapterNumber(activeChapterNumber);setManualText("")},[activeChapterNumber]);
 
   const selectedChapter=useMemo(()=>novel.chapters.find((item)=>item.number===chapterNumber),[novel.chapters,chapterNumber]);
   const effectiveChapterText=(manualText.trim()||selectedChapter?.sourceText.trim()||"");
@@ -340,7 +339,7 @@ export default function NovelImportPage(){
           <input value={novel.novelTitle} disabled={!!busy} onChange={(e)=>patchImport({novelTitle:e.target.value})} placeholder="Story या novel का नाम" className="rounded-xl border border-slate-200 px-3 py-2.5"/>
         </label>
         <label className="grid gap-1.5 text-sm font-semibold text-slate-700">Chapter Number
-          <input type="number" min={1} value={chapterNumber} disabled={!!busy} onChange={(e)=>setChapterNumber(Math.max(1,Number(e.target.value)||1))} className="rounded-xl border border-slate-200 px-3 py-2.5"/>
+          <input type="number" min={1} value={chapterNumber} disabled={!!busy} onChange={(e)=>patchImport({currentChapter:Math.max(1,Number(e.target.value)||1)})} className="rounded-xl border border-slate-200 px-3 py-2.5"/>
         </label>
       </div>
 
