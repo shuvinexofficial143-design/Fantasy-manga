@@ -25,8 +25,8 @@ export const VISUAL_DENSITY_OPTIONS=[
 
 const DENSITY_CHUNKS:Record<VisualDensity,{minWords:number;targetWords:number;maxWords:number}>={
   standard:{minWords:320,targetWords:420,maxWords:560},
-  highest:{minWords:240,targetWords:320,maxWords:420},
-  ultra:{minWords:170,targetWords:230,maxWords:300}
+  highest:{minWords:220,targetWords:300,maxWords:400},
+  ultra:{minWords:140,targetWords:200,maxWords:280}
 };
 
 export function nextChapterNumber(chapters:NovelChapter[]){
