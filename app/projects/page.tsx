@@ -74,18 +74,16 @@ export default function ProjectsPage(){
         const chapters=item.novelImport?.chapters||[];
         const isActive=item.id===project.id;
         return <article key={item.id} className={`rounded-2xl border bg-white p-5 shadow-sm transition ${isActive?"border-violet-300 ring-2 ring-violet-100":"border-slate-200"}`}>
-          <button onClick={()=>setState((current)=>({...current,activeProjectId:item.id}))} className="w-full text-left">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <div className="text-lg font-black text-slate-900">{item.name}</div>
-                <div className="mt-1 text-xs text-slate-500">{chapters.length} chapter{chapters.length===1?"":"s"} · {item.images.length} visuals · {item.characters.length} characters</div>
-              </div>
-              <div className="flex items-center gap-2">
-                {isActive&&<span className="rounded-full bg-violet-50 px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-violet-700">Active</span>}
-                <button onClick={(event)=>{event.stopPropagation();deleteProject(item.id,item.name)}} className="inline-flex items-center gap-1 rounded-lg border border-red-200 bg-red-50 px-2.5 py-1.5 text-[10px] font-black uppercase text-red-600 hover:bg-red-100"><Trash2 size={12}/> Delete</button>
-              </div>
+          <div className="flex items-start justify-between gap-3">
+            <button onClick={()=>setState((current)=>({...current,activeProjectId:item.id}))} className="min-w-0 flex-1 text-left">
+              <div className="text-lg font-black text-slate-900">{item.name}</div>
+              <div className="mt-1 text-xs text-slate-500">{chapters.length} chapter{chapters.length===1?"":"s"} · {item.images.length} visuals · {item.characters.length} characters</div>
+            </button>
+            <div className="flex shrink-0 items-center gap-2">
+              {isActive&&<span className="rounded-full bg-violet-50 px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-violet-700">Active</span>}
+              <button onClick={()=>deleteProject(item.id,item.name)} className="inline-flex items-center gap-1 rounded-lg border border-red-200 bg-red-50 px-2.5 py-1.5 text-[10px] font-black uppercase text-red-600 hover:bg-red-100"><Trash2 size={12}/> Delete</button>
             </div>
-          </button>
+          </div>
 
           <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-3">
             <div className="flex items-center justify-between gap-3">
