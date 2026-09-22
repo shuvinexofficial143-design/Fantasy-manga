@@ -60,13 +60,13 @@ export default function ProjectsPage(){
             <button onClick={()=>createChapter(item.id)} className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-3.5 py-2.5 text-sm font-bold text-white">
               <FilePlus2 size={15}/> Create Chapter
             </button>
-            {chapters.length>0&&<button onClick={()=>{setState((current)=>({...current,activeProjectId:item.id}));router.push(`/novel?chapter=${chapters[chapters.length-1].number}`)}} className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-3.5 py-2.5 text-sm font-semibold text-slate-700">
+            {chapters.length>0&&<button onClick={()=>{const number=chapters[chapters.length-1].number;setState((current)=>({...current,activeProjectId:item.id,projects:current.projects.map((entry)=>entry.id===item.id?{...entry,novelImport:{...(entry.novelImport||{novelTitle:"",locked:false,currentChapter:number,autoGenerate:false,chapters:[],errorLog:[]}),currentChapter:number}}:entry)}));router.push(`/novel?chapter=${number}`)}} className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-3.5 py-2.5 text-sm font-semibold text-slate-700">
               <BookOpenText size={15}/> Open Latest
             </button>}
           </div>
 
           <div className="mt-4 space-y-2">
-            {chapters.length?[...chapters].sort((a,b)=>a.number-b.number).map((chapter)=><button key={chapter.number} onClick={()=>{setState((current)=>({...current,activeProjectId:item.id}));router.push(`/novel?chapter=${chapter.number}`)}} className="flex w-full items-center justify-between rounded-xl border border-slate-100 bg-slate-50 px-3 py-2.5 text-left hover:border-violet-200 hover:bg-violet-50">
+            {chapters.length?[...chapters].sort((a,b)=>a.number-b.number).map((chapter)=><button key={chapter.number} onClick={()=>{setState((current)=>({...current,activeProjectId:item.id,projects:current.projects.map((entry)=>entry.id===item.id?{...entry,novelImport:{...(entry.novelImport||{novelTitle:"",locked:false,currentChapter:chapter.number,autoGenerate:false,chapters:[],errorLog:[]}),currentChapter:chapter.number}}:entry)}));router.push(`/novel?chapter=${chapter.number}`)}} className="flex w-full items-center justify-between rounded-xl border border-slate-100 bg-slate-50 px-3 py-2.5 text-left hover:border-violet-200 hover:bg-violet-50">
               <div>
                 <div className="text-sm font-bold text-slate-800">Chapter {chapter.number}</div>
                 <div className="mt-0.5 max-w-sm truncate text-xs text-slate-500">{chapter.title||"Untitled chapter"}</div>
