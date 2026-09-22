@@ -8,7 +8,11 @@ type Body={
   existingCharacters?:unknown;
   existingLocations?:unknown;
   previousSummary?:unknown;
+  previousSegmentSummary?:unknown;
   visualStyle?:unknown;
+  mode?:unknown;
+  segmentIndex?:unknown;
+  segmentCount?:unknown;
 };
 
 function stringValue(value:unknown,fallback=""){return typeof value==="string"?value.trim():fallback}
@@ -37,13 +41,19 @@ export async function POST(req:Request){
     const existingCharacters=arrayValue(body.existingCharacters) as Character[];
     const existingLocations=arrayValue(body.existingLocations) as Location[];
     const previousSummary=stringValue(body.previousSummary);
+    const previousSegmentSummary=stringValue(body.previousSegmentSummary);
+    const mode=stringValue(body.mode);
+    const segmentIndex=Math.max(0,Math.trunc(Number(body.segmentIndex)||0));
+    const segmentCount=Math.max(1,Math.trunc(Number(body.segmentCount)||1));
     const requestedVisualStyle=stringValue(body.visualStyle,"Cinematic realistic storytelling, premium movie-still composition, natural human faces, realistic skin and materials, physically believable lighting, natural color grading, rich environment detail, 16:9 framing");
 
-    const parts=chapterParts(chapterText);
+    const parts=mode==="chunk"?[chapterText]:chapterParts(chapterText);
     const results:Record<string,unknown>[]=[];
     for(let partIndex=0;partIndex<parts.length;partIndex++){
     const partText=parts[partIndex];
     const prior=results.at(-1);
+    const displayIndex=mode==="chunk"?segmentIndex:partIndex;
+    const displayCount=mode==="chunk"?segmentCount:parts.length;
     const prompt=[
       "You are a professional YouTube-style story explainer writer and cinematic visual director for an illustrated novel adaptation.",
       "Analyze CHAPTER "+chapterNumber+" and return ONLY valid JSON. Do not use markdown.",
@@ -51,7 +61,7 @@ export async function POST(req:Request){
       "Reuse an existing character/location by NAME whenever it is the same entity. Only report a new character or location when the chapter truly introduces one.",
       "For every recurring character write specific, stable visual traits (approximate age, face shape, hair, build, clothing colors and distinguishing marks) found in the text. Do not invent traits absent from the text; mark unknown details as needing a consistent design. Never replace established traits with generic placeholders.",
       "Every scene must use the exact canonical name from your characters and locations arrays (or existing arrays). Include every visually present named character. An unchanged setting must keep the same location name; specify a new location only when the text moves there.",
-      `VISUAL PLANNING: This is segment ${partIndex+1} of ${parts.length}. There is NO fixed image count, NO words-per-image rule and NO timing rule. Create a new visual only when a meaningful story beat actually benefits from a new image: a significant event, action, location change, character interaction, revelation, emotional shift, important object, concept or strong establishing moment. Combine nearby lines that belong to the same visual moment. Avoid repetitive or near-duplicate frames. Never invent action just to create more visuals.`,
+      `VISUAL PLANNING: This is segment ${displayIndex+1} of ${displayCount}. There is NO fixed image count, NO words-per-image rule and NO timing rule. Create a new visual only when a meaningful story beat actually benefits from a new image: a significant event, action, location change, character interaction, revelation, emotional shift, important object, concept or strong establishing moment. Combine nearby lines that belong to the same visual moment. Avoid repetitive or near-duplicate frames. Never invent action just to create more visuals.`,
       `GLOBAL VISUAL STYLE: ${requestedVisualStyle}. Keep this same visual language across the whole chapter and future chapters unless the user explicitly changes it.`,
       "EXPLAINER RULES: Write natural, polished narration that explains the story like a strong human storyteller. Do not rewrite the chapter line-by-line. Preserve important events, motivations, relationships, causes, consequences, reveals and emotional changes. Do not merely describe what the image shows. Do not include timestamps, seconds, durations, editing cues, voice instructions, TTS instructions or audio instructions.",
       "",
@@ -62,6 +72,7 @@ export async function POST(req:Request){
       JSON.stringify([...existingLocations,...results.flatMap((item)=>arrayValue(item.locations))].map((item)=>({name:objectValue(item).name,description:objectValue(item).description,lighting:objectValue(item).lighting,continuityNotes:objectValue(item).continuityNotes||""}))),
       "",
       previousSummary?"PREVIOUS CHAPTER SUMMARY:\n"+previousSummary:"",
+      previousSegmentSummary?"PREVIOUS COMPLETED SEGMENT SUMMARY:\n"+previousSegmentSummary:"",
       prior?"PREVIOUS SEGMENT SUMMARY:\n"+stringValue(prior.summary):"",
       "",
       "CHAPTER TEXT:",
@@ -96,7 +107,7 @@ export async function POST(req:Request){
     const summary=results.map((item)=>stringValue(item.summary)).filter(Boolean).join(" ");
     const draftExplainer=results.map((item)=>stringValue(item.explainer)).filter(Boolean).join("\n\n");
     let explainer=draftExplainer;
-    if(parts.length>1&&draftExplainer){
+    if(mode!=="chunk"&&parts.length>1&&draftExplainer){
       try{
         const polishPrompt=[
           "You are the final narration editor for a professional YouTube story explainer.",
