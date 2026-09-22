@@ -51,7 +51,7 @@ export type NovelChapter={
   scannedAt:string;
   analyzedAt?:string;
   sceneIds:string[];
-  status:"scanned"|"analyzed"|"generated"|"error";
+  status:"draft"|"scanned"|"analyzed"|"generated"|"error";
   error?:string;
 };
 
