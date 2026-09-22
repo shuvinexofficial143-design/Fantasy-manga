@@ -1,5 +1,5 @@
 import {describe,expect,it} from "vitest";
-import {chapterSourceKey,splitChapterLogically} from "./chapters";
+import {chapterSourceKey,splitChapterForDensity,splitChapterLogically} from "./chapters";
 
 describe("chapter analysis chunking",()=>{
   it("keeps paragraph boundaries while splitting a long chapter",()=>{
@@ -14,5 +14,21 @@ describe("chapter analysis chunking",()=>{
   it("creates a stable key for identical chapter text",()=>{
     expect(chapterSourceKey("hello   world")).toBe(chapterSourceKey("hello world"));
     expect(chapterSourceKey("hello world")).not.toBe(chapterSourceKey("hello world!"));
+  });
+
+  it("invalidates a saved analysis when visual density changes",()=>{
+    const text="same chapter text";
+    expect(chapterSourceKey(text,"standard")).not.toBe(chapterSourceKey(text,"highest"));
+    expect(chapterSourceKey(text,"highest")).not.toBe(chapterSourceKey(text,"ultra"));
+  });
+
+  it("uses progressively finer chunks for higher visual density",()=>{
+    const paragraph=(index:number)=>`P${index} ${Array(100).fill("story").join(" ")}.`;
+    const text=Array.from({length:12},(_,index)=>paragraph(index)).join("\n\n");
+    const standard=splitChapterForDensity(text,"standard");
+    const highest=splitChapterForDensity(text,"highest");
+    const ultra=splitChapterForDensity(text,"ultra");
+    expect(highest.length).toBeGreaterThan(standard.length);
+    expect(ultra.length).toBeGreaterThan(highest.length);
   });
 });
