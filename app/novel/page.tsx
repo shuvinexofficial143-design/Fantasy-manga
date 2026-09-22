@@ -1,6 +1,6 @@
 "use client";
 
-import {useMemo,useState} from "react";
+import {useEffect,useMemo,useState} from "react";
 import {AlertTriangle,BookOpenCheck,Copy,ExternalLink,Globe2,Loader2,Lock,LockOpen,Play,RefreshCw,ScanSearch,Sparkles} from "lucide-react";
 import {buildCinematicPrompt,hashString} from "@/lib/cinematic";
 import {createImage} from "@/lib/default-project";
@@ -79,6 +79,13 @@ export default function NovelImportPage(){
   const [notice,setNotice]=useState("");
   const [error,setError]=useState("");
 
+  useEffect(()=>{
+    const value=new URLSearchParams(window.location.search).get("chapter");
+    const parsed=Number(value);
+    if(Number.isInteger(parsed)&&parsed>0)setChapterNumber(parsed);
+  },[]);
+
+  const selectedChapter=useMemo(()=>novel.chapters.find((item)=>item.number===chapterNumber),[novel.chapters,chapterNumber]);
   const latestChapter=useMemo(()=>[...novel.chapters].sort((a,b)=>b.number-a.number)[0],[novel.chapters]);
   const detectedSource=useMemo(()=>sourceForUrl(manualUrl.trim()||storyPageUrl.trim()),[manualUrl,storyPageUrl]);
   const commit=(next:Project)=>setState((current)=>({...current,projects:current.projects.map((item)=>item.id===next.id?next:item)}));
@@ -441,13 +448,13 @@ export default function NovelImportPage(){
 
       <div className="my-5 flex items-center gap-3 text-xs font-bold uppercase tracking-widest text-slate-400"><div className="h-px flex-1 bg-slate-200"/><span>OR — PASTE CHAPTER TEXT</span><div className="h-px flex-1 bg-slate-200"/></div>
       <label className="grid gap-1.5 text-sm font-semibold text-slate-700">
-        Chapter {chapterNumber} Text
+        Chapter {chapterNumber} Story Input
         <textarea value={manualText} disabled={!!busy} onChange={(e)=>setManualText(e.target.value)} placeholder="जिस chapter को आप legally access/use कर सकते हैं उसका text यहाँ paste करें…" className="min-h-52 rounded-xl border border-slate-200 px-3 py-3 text-sm leading-6"/>
         <span className="text-xs font-normal text-slate-500">{manualText.length.toLocaleString()} characters · URL scan fail होने पर यह सबसे reliable तरीका है.</span>
       </label>
       <button disabled={!!busy||manualText.trim().length<120} onClick={()=>void analyzePasted()} className="mt-3 inline-flex items-center gap-2 rounded-xl border border-violet-200 bg-violet-50 px-5 py-3 text-sm font-bold text-violet-700 disabled:opacity-50">
         {busy==="paste"?<Loader2 className="animate-spin" size={17}/>:<BookOpenCheck size={17}/>}
-        Create Explainer + Visual Prompts {chapterNumber} {novel.autoGenerate?"+ Generate Images":""}
+        Generate Explainer + Auto-Extract Visual References {chapterNumber} {novel.autoGenerate?"+ Generate Images":""}
       </button>
 
       {novel.locked&&<div className="mt-5 grid gap-3 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900 md:grid-cols-2">
@@ -483,6 +490,34 @@ export default function NovelImportPage(){
     {notice&&<div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm font-medium text-emerald-800">{notice}</div>}
     {error&&<div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm font-medium text-red-700"><AlertTriangle className="mr-2 inline" size={16}/>{error}</div>}
     {persistenceError&&<div role="alert" className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm font-medium text-red-700"><AlertTriangle className="mr-2 inline" size={16}/>{persistenceError}</div>}
+
+    <section className="grid gap-4 lg:grid-cols-2">
+      <div className="rounded-2xl border border-emerald-200 bg-white p-5 shadow-sm">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <div className="text-xs font-black uppercase tracking-[.18em] text-emerald-600">Chapter {chapterNumber}</div>
+            <h2 className="mt-1 text-lg font-black">Explainer Content</h2>
+          </div>
+          {selectedChapter?.explainer&&<button disabled={!!busy} onClick={()=>void copyText(selectedChapter.explainer!,"Explainer")} className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-700"><Copy size={13}/> Copy</button>}
+        </div>
+        <div className="mt-4 min-h-44 rounded-xl border border-slate-100 bg-slate-50 p-4 text-sm leading-6 text-slate-700">
+          {selectedChapter?.explainer?<div className="whitespace-pre-wrap">{selectedChapter.explainer}</div>:<div className="grid min-h-36 place-items-center text-center text-slate-400">Chapter story paste करके Generate Explainer दबाएँ। पूरा copy-ready explainer यहाँ दिखाई देगा।</div>}
+        </div>
+      </div>
+
+      <div className="rounded-2xl border border-violet-200 bg-white p-5 shadow-sm">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <div className="text-xs font-black uppercase tracking-[.18em] text-violet-600">Adaptive visuals</div>
+            <h2 className="mt-1 text-lg font-black">Visual Prompts</h2>
+          </div>
+          {selectedChapter?.sceneIds.length?<button disabled={!!busy} onClick={()=>void copyText(chapterVisualPrompts(selectedChapter),"Visual prompts")} className="inline-flex items-center gap-1.5 rounded-lg border border-violet-200 bg-violet-50 px-3 py-2 text-xs font-bold text-violet-700"><Copy size={13}/> Copy All</button>:null}
+        </div>
+        <div className="mt-4 min-h-44 rounded-xl border border-slate-100 bg-slate-50 p-4 text-sm leading-6 text-slate-700">
+          {selectedChapter?.sceneIds.length?<pre className="max-h-72 overflow-auto whitespace-pre-wrap font-sans text-xs leading-5">{chapterVisualPrompts(selectedChapter)}</pre>:<div className="grid min-h-36 place-items-center text-center text-slate-400">Fixed image count नहीं है। Story analyze होने के बाद meaningful visual prompts यहाँ आएँगे।</div>}
+        </div>
+      </div>
+    </section>
 
     <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
       <div className="mb-4 flex items-center justify-between gap-4">
