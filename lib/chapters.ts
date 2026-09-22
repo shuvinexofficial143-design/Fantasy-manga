@@ -1,6 +1,33 @@
-import type {NovelChapter} from "./types";
+import type {NovelChapter,VisualDensity} from "./types";
 
-const ANALYSIS_PROFILE="micro-visual-v2";
+const ANALYSIS_PROFILE="micro-visual-v3-density";
+
+export const VISUAL_DENSITY_OPTIONS=[
+  {
+    value:"standard",
+    label:"Standard",
+    range:"≈50–55",
+    description:"Detailed micro visuals for normal cinematic pacing without unnecessary splits."
+  },
+  {
+    value:"highest",
+    label:"Highest",
+    range:"≈60–70",
+    description:"Finer action, reaction, gesture and object beats for denser visual storytelling."
+  },
+  {
+    value:"ultra",
+    label:"Ultra Highest",
+    range:"≈90",
+    description:"Maximum story-faithful micro splitting for very dense visual coverage."
+  }
+] as const satisfies ReadonlyArray<{value:VisualDensity;label:string;range:string;description:string}>;
+
+const DENSITY_CHUNKS:Record<VisualDensity,{minWords:number;targetWords:number;maxWords:number}>={
+  standard:{minWords:320,targetWords:420,maxWords:560},
+  highest:{minWords:240,targetWords:320,maxWords:420},
+  ultra:{minWords:170,targetWords:230,maxWords:300}
+};
 
 export function nextChapterNumber(chapters:NovelChapter[]){
   return chapters.reduce((max,chapter)=>Math.max(max,chapter.number),0)+1;
@@ -18,14 +45,14 @@ export function createDraftChapter(number:number):NovelChapter{
   };
 }
 
-export function chapterSourceKey(text:string){
+export function chapterSourceKey(text:string,density:VisualDensity="standard"){
   const normalized=text.trim().replace(/\s+/g," ");
   let hash=2166136261;
   for(let i=0;i<normalized.length;i+=1){
     hash^=normalized.charCodeAt(i);
     hash=Math.imul(hash,16777619);
   }
-  return `${ANALYSIS_PROFILE}-${normalized.length}-${(hash>>>0).toString(36)}`;
+  return `${ANALYSIS_PROFILE}-${density}-${normalized.length}-${(hash>>>0).toString(36)}`;
 }
 
 function wordCount(text:string){return text.trim()?text.trim().split(/\s+/).length:0}
@@ -68,8 +95,13 @@ export function splitChapterLogically(text:string,minWords=320,targetWords=420,m
   }
   if(current.length){
     const tail=current.join("\n\n");
-    if(parts.length&&wordCount(tail)<Math.max(220,Math.floor(minWords/2)))parts[parts.length-1]+="\n\n"+tail;
+    if(parts.length&&wordCount(tail)<Math.max(100,Math.floor(minWords/2)))parts[parts.length-1]+="\n\n"+tail;
     else parts.push(tail);
   }
   return parts;
+}
+
+export function splitChapterForDensity(text:string,density:VisualDensity="standard"){
+  const config=DENSITY_CHUNKS[density]||DENSITY_CHUNKS.standard;
+  return splitChapterLogically(text,config.minWords,config.targetWords,config.maxWords);
 }
