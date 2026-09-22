@@ -1,14 +1,14 @@
 "use client";
 
-import {useMemo,useState} from "react";
-import {AlertTriangle,BookOpenCheck,Copy,FileText,Globe2,Loader2,Play,RefreshCw,Sparkles} from "lucide-react";
-import {buildCinematicPrompt,hashString} from "@/lib/cinematic";
+import {useEffect,useMemo,useState} from "react";
+import Link from "next/link";
+import {AlertTriangle,BookOpenCheck,FileText,Loader2,Sparkles} from "lucide-react";
 import {chapterSourceKey,splitChapterForDensity} from "@/lib/chapters";
 import {createImage} from "@/lib/default-project";
 import {projectImageStyle} from "@/lib/style-presets";
 import {replaceChapterScenes} from "@/lib/novel-workflow";
-import {findLocation,findNamed,namedSceneCharacters,novelReferences} from "@/lib/novel-continuity";
-import type {ChapterAnalysisProgress,Character,CinematicImage,Location,NovelChapter,NovelImportState,Project} from "@/lib/types";
+import {findLocation,findNamed,namedSceneCharacters} from "@/lib/novel-continuity";
+import type {ChapterAnalysisProgress,Character,Location,NovelChapter,NovelImportState,Project} from "@/lib/types";
 import {useProject} from "@/components/project-provider";
 
 const uid=()=>typeof crypto!=="undefined"&&"randomUUID" in crypto?crypto.randomUUID():String(Date.now())+"-"+Math.random().toString(36).slice(2);
@@ -95,66 +95,15 @@ export default function NovelImportPage(){
   const [progress,setProgress]=useState("");
   const [notice,setNotice]=useState("");
   const [error,setError]=useState("");
+  const activeChapterNumber=Math.max(1,novel.currentChapter||1);
+
+  useEffect(()=>{setChapterNumber(activeChapterNumber);setManualText("")},[activeChapterNumber]);
 
   const selectedChapter=useMemo(()=>novel.chapters.find((item)=>item.number===chapterNumber),[novel.chapters,chapterNumber]);
   const effectiveChapterText=(manualText.trim()||selectedChapter?.sourceText.trim()||"");
   const analysisPartCount=useMemo(()=>effectiveChapterText.length>=120?splitChapterForDensity(effectiveChapterText,project.visualDensity).length:0,[effectiveChapterText,project.visualDensity]);
-  const latestChapter=useMemo(()=>[...novel.chapters].sort((a,b)=>b.number-a.number)[0],[novel.chapters]);
   const commit=(next:Project)=>setState((current)=>({...current,projects:current.projects.map((item)=>item.id===next.id?next:item)}));
   const patchImport=(value:Partial<NovelImportState>)=>commit({...project,novelImport:{...novel,...value},updatedAt:new Date().toISOString()});
-  const copyText=async(text:string,label:string)=>{try{await navigator.clipboard.writeText(text);setNotice(label+" copied.");setError("")}catch{setError("Copy failed. Browser clipboard permission check करें.")}};
-  const chapterVisualPrompts=(chapter:NovelChapter)=>{
-    const ids=new Set(chapter.sceneIds);
-    const ordered=[...project.images].sort((a,b)=>a.sceneNumber-b.sceneNumber);
-    return ordered.filter((scene)=>ids.has(scene.id)).map((scene,index)=>{
-      const sceneIndex=ordered.findIndex((item)=>item.id===scene.id);
-      const previous=sceneIndex>0?ordered[sceneIndex-1]:undefined;
-      const prompt=buildCinematicPrompt({scene,project,previousScene:previous});
-      return `Visual ${index+1}\nStory Moment: ${scene.sourceText}\n\nImage Prompt:\n${prompt}`;
-    }).join("\n\n---\n\n");
-  };
-
-  const renderScene=async(sceneId:string,working:Project)=>{
-    const ordered=[...working.images].sort((a,b)=>a.sceneNumber-b.sceneNumber);
-    const index=ordered.findIndex((item)=>item.id===sceneId);
-    if(index<0)throw new Error("Scene not found.");
-    const scene=ordered[index],previous=index>0?ordered[index-1]:undefined;
-    if(working.continuityMode==="strict"&&scene.usePreviousImage&&previous&&!previous.image)throw new Error("Generate Scene "+previous.sceneNumber+" first for strict continuity.");
-
-    const prompt=buildCinematicPrompt({scene,project:working,previousScene:previous});
-    const refs=novelReferences(scene,working,previous);
-    const response=await fetch("/api/generate",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({
-      prompt,
-      negativePrompt:scene.negativePrompt,
-      aspectRatio:working.aspectRatio,
-      seed:scene.seed||hashString(working.id+"|"+scene.characterStates.map((state)=>state.characterId).sort().join("|")+"|"+(scene.locationId||"")),
-      referenceImages:refs.images,
-      referenceLabels:refs.labels
-    })});
-    const data=await response.json() as {image?:string;provider?:string;model?:string;seed?:number;referenceCount?:number;error?:string};
-    if(!response.ok||!data.image)throw new Error(data.error||"Image generation failed.");
-
-    const done:CinematicImage={...scene,prompt,image:data.image,provider:data.provider,model:data.model,seed:data.seed,referenceCount:data.referenceCount,status:"completed",error:undefined};
-    const next={...working,images:working.images.map((item)=>item.id===scene.id?done:item),updatedAt:new Date().toISOString()};
-    commit(next);
-    return next;
-  };
-
-  const generateChapterImages=async(working:Project,number:number,sceneIds:string[])=>{
-    let next=working;
-    for(let index=0;index<sceneIds.length;index+=1){
-      setProgress("Chapter "+number+": generating image "+(index+1)+" of "+sceneIds.length+" with previous-frame continuity…");
-      next=await renderScene(sceneIds[index],next);
-    }
-    const state=next.novelImport||emptyImport();
-    const chapter=state.chapters.find((item)=>item.number===number);
-    if(chapter){
-      next={...next,novelImport:{...state,chapters:upsertChapter(state.chapters,{...chapter,status:"generated"})},updatedAt:new Date().toISOString()};
-      commit(next);
-    }
-    return next;
-  };
-
   const analyzePasted=async()=>{
     const number=Math.max(1,Math.trunc(chapterNumber||1));
     const chapterText=effectiveChapterText;
@@ -351,17 +300,11 @@ export default function NovelImportPage(){
         analysisProgress:completedProgress,
         error:undefined
       };
-      const analyzedState={...state,chapters:upsertChapter(state.chapters,analyzedChapter)};
+      const analyzedState={...state,autoGenerate:false,chapters:upsertChapter(state.chapters,analyzedChapter)};
       working={...working,novelImport:analyzedState,updatedAt:new Date().toISOString()};
       commit(working);
 
-      if(analyzedState.autoGenerate){
-        setProgress("Explainer complete. "+analyzedChapter.sceneIds.length+" visual images generate हो रही हैं…");
-        working=await generateChapterImages(working,number,analyzedChapter.sceneIds);
-        setNotice("Chapter "+number+" step-by-step analysis, final explainer और image generation complete.");
-      }else{
-        setNotice("Chapter "+number+" के "+parts.length+" parts step-by-step analyze होकर save हो गए। Final explainer और visual prompts तैयार हैं।");
-      }
+      setNotice("Chapter "+number+" analysis complete. Visual Prompts और Explainer अपने dedicated pages पर तैयार हैं।");
     }catch(reason){
       const message=reason instanceof Error?reason.message:"Chapter analysis failed.";
       const state=working.novelImport||emptyImport();
@@ -380,23 +323,12 @@ export default function NovelImportPage(){
     }
   };
 
-  const generateCurrent=async(number:number)=>{
-    const chapter=novel.chapters.find((item)=>item.number===number);
-    if(!chapter?.sceneIds.length){setError("इस chapter के analyzed scenes नहीं मिले।");return}
-    setBusy("generate");setError("");setNotice("");
-    try{
-      await generateChapterImages(project,number,chapter.sceneIds);
-      setNotice("Chapter "+number+" images generated.");
-    }catch(reason){setError(reason instanceof Error?reason.message:"Generation failed.")}
-    finally{setBusy("");setProgress("")}
-  };
-
   return <div className="mx-auto max-w-6xl space-y-6">
     <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div>
-          <div className="flex items-center gap-2 text-xl font-black"><BookOpenCheck className="text-violet-600"/> Chapter Explainer</div>
-          <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">Chapter का text paste करें। AI उसी text से natural copy-ready explainer, character/location continuity और adaptive visual prompts बनाएगा। कोई URL import, voice/TTS, timestamp या fixed visual count नहीं है।</p>
+          <div className="flex items-center gap-2 text-xl font-black"><BookOpenCheck className="text-violet-600"/> Story Input & Analysis</div>
+          <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">यह इस project का एकमात्र chapter story input है। Text paste करें और analysis चलाएँ; output अपने आप Visual Prompts और Explainer pages पर save होगा।</p>
         </div>
         <div className="inline-flex items-center gap-2 rounded-full bg-violet-50 px-3 py-1.5 text-xs font-bold text-violet-700">
           <FileText size={14}/> CHAPTER {chapterNumber}
@@ -427,10 +359,6 @@ export default function NovelImportPage(){
             ?"Resume Analysis · Part "+(selectedChapter.analysisProgress.completedParts+1)+" / "+selectedChapter.analysisProgress.totalParts
             :"Generate Explainer + Visual Prompts"}
         </button>
-        <label className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-700">
-          <input type="checkbox" checked={novel.autoGenerate} disabled={!!busy} onChange={(e)=>patchImport({autoGenerate:e.target.checked})}/>
-          Generate images automatically (optional)
-        </label>
       </div>
     </section>
 
@@ -445,64 +373,20 @@ export default function NovelImportPage(){
       {selectedChapter.analysisProgress.status==="paused"&&<div className="mt-2 text-xs font-semibold text-amber-700">Analysis paused है। Complete parts दोबारा नहीं चलेंगे; Resume उसी अगले part से होगा।</div>}
     </section>}
 
-    <section className="grid gap-4 lg:grid-cols-2">
-      <div className="rounded-2xl border border-emerald-200 bg-white p-5 shadow-sm">
-        <div className="flex items-center justify-between gap-3">
-          <div>
-            <div className="text-xs font-black uppercase tracking-[.18em] text-emerald-600">Chapter {chapterNumber}</div>
-            <h2 className="mt-1 text-lg font-black">Explainer Content</h2>
-          </div>
-          {selectedChapter?.explainer&&<button disabled={!!busy} onClick={()=>void copyText(selectedChapter.explainer!,"Explainer")} className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-700"><Copy size={13}/> Copy</button>}
-        </div>
-        <div className="mt-4 min-h-44 rounded-xl border border-slate-100 bg-slate-50 p-4 text-sm leading-6 text-slate-700">
-          {selectedChapter?.explainer?<div className="whitespace-pre-wrap">{selectedChapter.explainer}</div>:<div className="grid min-h-36 place-items-center text-center text-slate-400">Chapter story paste करके Generate Explainer दबाएँ। पूरा copy-ready explainer यहाँ दिखाई देगा।</div>}
-        </div>
-      </div>
-
-      <div className="rounded-2xl border border-violet-200 bg-white p-5 shadow-sm">
-        <div className="flex items-center justify-between gap-3">
-          <div>
-            <div className="text-xs font-black uppercase tracking-[.18em] text-violet-600">Adaptive visuals</div>
-            <h2 className="mt-1 text-lg font-black">Visual Prompts</h2>
-          </div>
-          {selectedChapter?.sceneIds.length?<button disabled={!!busy} onClick={()=>void copyText(chapterVisualPrompts(selectedChapter),"Visual prompts")} className="inline-flex items-center gap-1.5 rounded-lg border border-violet-200 bg-violet-50 px-3 py-2 text-xs font-bold text-violet-700"><Copy size={13}/> Copy All</button>:null}
-        </div>
-        <div className="mt-4 min-h-44 rounded-xl border border-slate-100 bg-slate-50 p-4 text-sm leading-6 text-slate-700">
-          {selectedChapter?.sceneIds.length?<pre className="max-h-72 overflow-auto whitespace-pre-wrap font-sans text-xs leading-5">{chapterVisualPrompts(selectedChapter)}</pre>:<div className="grid min-h-36 place-items-center text-center text-slate-400">Fixed image count नहीं है। Story analyze होने के बाद meaningful visual prompts यहाँ आएँगे।</div>}
-        </div>
-      </div>
-    </section>
-
     {progress&&<div className="rounded-2xl border border-violet-200 bg-violet-50 p-4 text-sm text-violet-800"><Loader2 className="mr-2 inline animate-spin" size={16}/>{progress}</div>}
     {notice&&<div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm font-medium text-emerald-800">{notice}</div>}
     {error&&<div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm font-medium text-red-700"><AlertTriangle className="mr-2 inline" size={16}/>{error}</div>}
     {persistenceError&&<div role="alert" className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm font-medium text-red-700"><AlertTriangle className="mr-2 inline" size={16}/>{persistenceError}</div>}
 
-    <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-      <div className="mb-4 flex items-center justify-between gap-4">
-        <div><h2 className="font-black">Project Chapters</h2><p className="mt-1 text-sm text-slate-500">इस project के सभी chapters, explainer और visual state यहाँ अलग-अलग save होते हैं.</p></div>
-        <BookOpenCheck className="text-violet-600"/>
+    {selectedChapter?.analysisProgress?.status==="complete"&&<section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+      <div className="flex items-center gap-2 font-black text-slate-900"><Sparkles className="text-violet-600" size={18}/> Analysis complete</div>
+      <p className="mt-2 text-sm leading-6 text-slate-500">इस page पर chapter input और analysis पूरा हो गया। अब saved output नीचे दिए अलग pages पर खोलें।</p>
+      <div className="mt-4 flex flex-wrap gap-2">
+        <Link href="/visuals" className="rounded-xl bg-violet-600 px-4 py-2.5 text-sm font-bold text-white">Open Visual Prompts</Link>
+        <Link href="/explainer" className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-sm font-bold text-emerald-700">Open Explainer</Link>
+        <Link href="/images" className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-bold text-slate-700">Generate Images</Link>
       </div>
-      <div className="space-y-3">
-        {novel.chapters.length?[...novel.chapters].sort((a,b)=>a.number-b.number).map((chapter)=><article key={chapter.number} className="rounded-xl border border-slate-200 p-4">
-          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-            <div className="min-w-0">
-              <div className="font-bold">Chapter {chapter.number} · {chapter.title}</div>
-              <div className="mt-1 flex flex-wrap gap-2 text-xs text-slate-500"><span>{chapter.sourceText.length.toLocaleString()} chars scanned</span><span>·</span><span>{chapter.sceneIds.length} adaptive visuals</span><span>·</span><span className="font-semibold capitalize">{chapter.visualDensity||"standard"} density</span><span>·</span><span className="font-semibold uppercase">{chapter.status}</span></div>
-              <div className="mt-2 text-xs font-semibold text-slate-500">Chapter text saved in this project</div>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              {chapter.explainer&&<button disabled={!!busy} onClick={()=>void copyText(chapter.explainer!,"Explainer")} className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-700 disabled:opacity-50"><Copy size={13}/> Copy Explainer</button>}
-              {chapter.sceneIds.length>0&&<button disabled={!!busy} onClick={()=>void copyText(chapterVisualPrompts(chapter),"Visual prompts")} className="inline-flex items-center gap-1.5 rounded-lg border border-violet-200 bg-violet-50 px-3 py-2 text-xs font-bold text-violet-700 disabled:opacity-50"><Copy size={13}/> Copy Visual Prompts</button>}
-              {chapter.status!=="generated"&&chapter.sceneIds.length>0&&<button disabled={!!busy} onClick={()=>void generateCurrent(chapter.number)} className="inline-flex items-center gap-1.5 rounded-lg bg-violet-600 px-3 py-2 text-xs font-bold text-white disabled:opacity-50"><Play size={13}/> Generate Images</button>}
-              <button disabled={!!busy} onClick={()=>{setChapterNumber(chapter.number);setManualText(chapter.sourceText)}} className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700"><RefreshCw size={13}/> Edit Chapter</button>
-            </div>
-          </div>
-          {chapter.explainer&&<details className="mt-4 rounded-xl border border-slate-100 bg-slate-50 p-3"><summary className="cursor-pointer text-sm font-bold text-slate-700">Complete Explainer</summary><div className="mt-3 whitespace-pre-wrap text-sm leading-6 text-slate-700">{chapter.explainer}</div></details>}
-        </article>):<div className="rounded-xl border border-dashed border-slate-300 p-8 text-center text-sm text-slate-500"><Globe2 className="mx-auto mb-2"/>अभी कोई chapter content generate नहीं हुआ.</div>}
-      </div>
-    </section>
+    </section>}
 
-    {latestChapter&&<div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-xs text-slate-500"><Sparkles className="mr-1 inline" size={13}/> Last chapter: Chapter {latestChapter.number}. अगला chapter इसी project की character/location continuity को आगे बढ़ाएगा.</div>}
   </div>;
 }
