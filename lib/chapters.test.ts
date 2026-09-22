@@ -16,10 +16,12 @@ describe("chapter analysis chunking",()=>{
     expect(chapterSourceKey("hello world")).not.toBe(chapterSourceKey("hello world!"));
   });
 
-  it("invalidates a saved analysis when visual density changes",()=>{
+  it("invalidates a saved analysis when visual density or style changes",()=>{
     const text="same chapter text";
     expect(chapterSourceKey(text,"standard")).not.toBe(chapterSourceKey(text,"highest"));
     expect(chapterSourceKey(text,"highest")).not.toBe(chapterSourceKey(text,"ultra"));
+    expect(chapterSourceKey(text,"standard","reference-video")).not.toBe(chapterSourceKey(text,"standard","cinematic-realistic"));
+    expect(chapterSourceKey(text,"standard","cinematic-realistic")).not.toBe(chapterSourceKey(text,"standard","custom"));
   });
 
   it("uses progressively finer chunks for higher visual density",()=>{
