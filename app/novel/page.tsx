@@ -187,9 +187,9 @@ export default function NovelImportPage(){
         .filter((item)=>item.number<number&&item.summary)
         .sort((a,b)=>b.number-a.number)[0]?.summary||"";
 
-      let partSummaries=canResume?[...(oldProgress?.partSummaries||[])]:[];
-      let partExplainers=canResume?[...(oldProgress?.partExplainers||[])]:[];
-      let partSceneIds=canResume?(oldProgress?.partSceneIds||[]).map((ids)=>[...ids]):[];
+      const partSummaries=canResume?[...(oldProgress?.partSummaries||[])]:[];
+      const partExplainers=canResume?[...(oldProgress?.partExplainers||[])]:[];
+      const partSceneIds=canResume?(oldProgress?.partSceneIds||[]).map((ids)=>[...ids]):[];
       activePart=canResume?(oldProgress?.completedParts||0):0;
 
       if(!canResume){
