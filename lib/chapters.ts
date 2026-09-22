@@ -23,7 +23,7 @@ export function chapterSourceKey(text:string){
     hash^=normalized.charCodeAt(i);
     hash=Math.imul(hash,16777619);
   }
-  return `${normalized.length}-${(hash>>>0).toString(36)}`;
+  return `${ANALYSIS_PROFILE}-${normalized.length}-${(hash>>>0).toString(36)}`;
 }
 
 function wordCount(text:string){return text.trim()?text.trim().split(/\s+/).length:0}
@@ -48,7 +48,7 @@ function splitLongParagraph(paragraph:string,maxWords:number){
   return pieces;
 }
 
-export function splitChapterLogically(text:string,minWords=650,targetWords=850,maxWords=1100){
+export function splitChapterLogically(text:string,minWords=320,targetWords=420,maxWords=560){
   const source=text.trim();
   if(!source)return [];
   const paragraphs=source.split(/\n\s*\n+/).map((item)=>item.trim()).filter(Boolean);
