@@ -4,7 +4,8 @@ import {BookOpenText,FilePlus2,Plus} from "lucide-react";
 import {useRouter} from "next/navigation";
 import {createDraftChapter,nextChapterNumber,VISUAL_DENSITY_OPTIONS} from "@/lib/chapters";
 import {useProject} from "@/components/project-provider";
-import type {VisualDensity} from "@/lib/types";
+import {STYLE_PRESETS} from "@/lib/style-presets";
+import type {ImageStylePreset,VisualDensity} from "@/lib/types";
 
 export default function ProjectsPage(){
   const router=useRouter();
@@ -13,6 +14,11 @@ export default function ProjectsPage(){
   const setVisualDensity=(projectId:string,visualDensity:VisualDensity)=>setState((current)=>({
     ...current,
     projects:current.projects.map((item)=>item.id===projectId?{...item,visualDensity,updatedAt:new Date().toISOString()}:item)
+  }));
+
+  const setImageStyle=(projectId:string,imageStylePreset:ImageStylePreset)=>setState((current)=>({
+    ...current,
+    projects:current.projects.map((item)=>item.id===projectId?{...item,imageStylePreset,updatedAt:new Date().toISOString()}:item)
   }));
 
   const createChapter=(projectId:string)=>{
@@ -73,6 +79,16 @@ export default function ProjectsPage(){
               {VISUAL_DENSITY_OPTIONS.map((option)=><button key={option.value} onClick={()=>setVisualDensity(item.id,option.value)} title={option.description} className={`rounded-lg border px-3 py-2 text-left transition ${item.visualDensity===option.value?"border-violet-300 bg-violet-50 text-violet-800":"border-slate-200 bg-white text-slate-600 hover:border-violet-200"}`}>
                 <span className="block text-xs font-black">{option.label}</span>
                 <span className="mt-0.5 block text-[11px] font-semibold">{option.range} visuals*</span>
+              </button>)}
+            </div>
+          </div>
+
+          <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-3">
+            <div className="text-xs font-black uppercase tracking-[.16em] text-slate-600">Image Style</div>
+            <div className="mt-1 text-[11px] leading-4 text-slate-500">Reference Video Style is the default locked art direction.</div>
+            <div className="mt-3 grid gap-2 sm:grid-cols-3">
+              {STYLE_PRESETS.map((option)=><button key={option.value} onClick={()=>setImageStyle(item.id,option.value)} title={option.description} className={`rounded-lg border px-3 py-2 text-left transition ${item.imageStylePreset===option.value?"border-violet-300 bg-violet-50 text-violet-800":"border-slate-200 bg-white text-slate-600 hover:border-violet-200"}`}>
+                <span className="block text-xs font-black">{option.label}</span>
               </button>)}
             </div>
           </div>
