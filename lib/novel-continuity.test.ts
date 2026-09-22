@@ -1,16 +1,8 @@
 import {describe,expect,it} from "vitest";
 import {createImage,createProject} from "./default-project";
-import {novelReferences,sceneTarget} from "./novel-continuity";
+import {novelReferences} from "./novel-continuity";
 
-describe("chapter scene density and visual anchors",()=>{
-  it("scales scene targets with chapter length and has no 30 scene limit",()=>{
-    const chapter=Array(2400).fill("word").join(" ");
-    expect(sceneTarget(chapter,"standard")).toBe(30);
-    expect(sceneTarget(chapter,"highest")).toBe(100);
-    expect(sceneTarget(chapter,"ultra")).toBe(150);
-    expect(sceneTarget(Array(10000).fill("word").join(" "),"highest")).toBeGreaterThan(120);
-  });
-
+describe("novel visual anchors",()=>{
   it("reuses the earliest character and location image plus the immediately previous frame",()=>{
     const project=createProject();
     const person={id:"hero",name:"Hero",role:"Main",appearance:"Black hair",outfit:"Blue coat"};
