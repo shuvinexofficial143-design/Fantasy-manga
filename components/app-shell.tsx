@@ -59,7 +59,7 @@ export function AppShell({children}:{children:React.ReactNode}){
         </button>
 
         <div className="mt-3 space-y-1.5">
-          {[...chapters].sort((a,b)=>b.number-a.number).slice(0,6).map((chapter)=><button key={chapter.number} onClick={()=>router.push(`/novel?chapter=${chapter.number}`)} className="flex w-full items-center justify-between rounded-lg bg-white px-2.5 py-2 text-left text-xs hover:bg-violet-50">
+          {[...chapters].sort((a,b)=>b.number-a.number).slice(0,6).map((chapter)=><button key={chapter.number} onClick={()=>{updateProject((item)=>({...item,novelImport:{...(item.novelImport||{novelTitle:"",locked:false,currentChapter:chapter.number,autoGenerate:false,chapters:[],errorLog:[]}),currentChapter:chapter.number},updatedAt:new Date().toISOString()}));router.push(`/novel?chapter=${chapter.number}`)}} className="flex w-full items-center justify-between rounded-lg bg-white px-2.5 py-2 text-left text-xs hover:bg-violet-50">
             <span className="font-semibold text-slate-700">Chapter {chapter.number}</span>
             <span className="text-[10px] uppercase text-slate-400">{chapter.status}</span>
           </button>)}
