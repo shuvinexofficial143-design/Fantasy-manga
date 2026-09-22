@@ -1,7 +1,6 @@
 import {NextResponse} from "next/server";
 import {generateVertexText} from "@/lib/vertex-text";
 import type {Character,Location} from "@/lib/types";
-import {sceneTarget,type SceneDetail} from "@/lib/novel-continuity";
 
 type Body={
   chapterNumber?:unknown;
@@ -9,7 +8,7 @@ type Body={
   existingCharacters?:unknown;
   existingLocations?:unknown;
   previousSummary?:unknown;
-  sceneDetail?:unknown;
+  visualStyle?:unknown;
 };
 
 function stringValue(value:unknown,fallback=""){return typeof value==="string"?value.trim():fallback}
@@ -38,23 +37,23 @@ export async function POST(req:Request){
     const existingCharacters=arrayValue(body.existingCharacters) as Character[];
     const existingLocations=arrayValue(body.existingLocations) as Location[];
     const previousSummary=stringValue(body.previousSummary);
-    const sceneDetail:SceneDetail=body.sceneDetail==="highest"||body.sceneDetail==="ultra"?body.sceneDetail:"standard";
-    const target=sceneTarget(chapterText,sceneDetail);
+    const requestedVisualStyle=stringValue(body.visualStyle,"Cinematic realistic storytelling, premium movie-still composition, natural human faces, realistic skin and materials, physically believable lighting, natural color grading, rich environment detail, 16:9 framing");
 
     const parts=chapterParts(chapterText);
     const results:Record<string,unknown>[]=[];
     for(let partIndex=0;partIndex<parts.length;partIndex++){
     const partText=parts[partIndex];
-    const partTarget=sceneTarget(partText,sceneDetail);
     const prior=results.at(-1);
     const prompt=[
-      "You are the continuity director for a cinematic illustrated novel adaptation.",
+      "You are a professional YouTube-style story explainer writer and cinematic visual director for an illustrated novel adaptation.",
       "Analyze CHAPTER "+chapterNumber+" and return ONLY valid JSON. Do not use markdown.",
       "Track recurring characters, entrances/exits, outfits, injuries, weapons, held objects, pose progression, left/right screen geography, eyelines, location layout and persistent environmental state.",
       "Reuse an existing character/location by NAME whenever it is the same entity. Only report a new character or location when the chapter truly introduces one.",
       "For every recurring character write specific, stable visual traits (approximate age, face shape, hair, build, clothing colors and distinguishing marks) found in the text. Do not invent traits absent from the text; mark unknown details as needing a consistent design. Never replace established traits with generic placeholders.",
       "Every scene must use the exact canonical name from your characters and locations arrays (or existing arrays). Include every visually present named character. An unchanged setting must keep the same location name; specify a new location only when the text moves there.",
-      `SCENE DENSITY: ${sceneDetail}. This is segment ${partIndex+1} of ${parts.length}. Aim for about ${partTarget} chronological visual beats (one image each) in this segment; the entire chapter target is about ${target}. Capture every distinct visible movement, reaction, change of expression, interaction, camera-relevant transition and environmental change in story order. In Highest and Ultra, expand meaningful sequential actions into individual frames. No arbitrary scene-count ceiling. Never repeat frames or invent action to meet the target.`,
+      `VISUAL PLANNING: This is segment ${partIndex+1} of ${parts.length}. There is NO fixed image count, NO words-per-image rule and NO timing rule. Create a new visual only when a meaningful story beat actually benefits from a new image: a significant event, action, location change, character interaction, revelation, emotional shift, important object, concept or strong establishing moment. Combine nearby lines that belong to the same visual moment. Avoid repetitive or near-duplicate frames. Never invent action just to create more visuals.`,
+      `GLOBAL VISUAL STYLE: ${requestedVisualStyle}. Keep this same visual language across the whole chapter and future chapters unless the user explicitly changes it.`,
+      "EXPLAINER RULES: Write natural, polished narration that explains the story like a strong human storyteller. Do not rewrite the chapter line-by-line. Preserve important events, motivations, relationships, causes, consequences, reveals and emotional changes. Do not merely describe what the image shows. Do not include timestamps, seconds, durations, editing cues, voice instructions, TTS instructions or audio instructions.",
       "",
       "EXISTING CHARACTERS:",
       JSON.stringify([...existingCharacters,...results.flatMap((item)=>arrayValue(item.characters))].map((item)=>({name:objectValue(item).name,role:objectValue(item).role,appearance:objectValue(item).appearance,outfit:objectValue(item).outfit,continuityNotes:objectValue(item).continuityNotes||""}))),
@@ -71,6 +70,8 @@ export async function POST(req:Request){
       "Return this exact top-level shape:",
       JSON.stringify({
         summary:"",
+        explainer:"",
+        visualStyle:"",
         characters:[{name:"",role:"",appearance:"",outfit:"",continuityNotes:""}],
         locations:[{name:"",description:"",lighting:"",continuityNotes:""}],
         scenes:[{
@@ -81,17 +82,20 @@ export async function POST(req:Request){
           cameraAngle:"",
           cameraDirection:"",
           continuityNotes:"",
+          imagePrompt:"",
           characters:[{name:"",position:"left|center|right|foreground|background",action:"",direction:"",expression:"",stateNotes:""}]
         }]
       }),
       "",
-      "Rules: each scene must be one distinct visual beat suitable for one full cinematic image; sourceText should be a concise paraphrase of the beat, not a long quote; preserve continuity from the previous chapter and previous segment; do not invent events; no manga panel/page instructions. Return scenes in chapter order. Every scene should connect causally and visually to its predecessor. Carry clothing, location layout, time of day, props, injuries, screen direction and character position from the prior scene until the story explicitly changes them."
+      "Rules: explainer must be copy-ready continuous narration for this segment and must contain no timestamps or voice/TTS instructions. Each scene must be one meaningful visual beat suitable for one full cinematic image; sourceText should be a concise paraphrase of the beat, not a long quote. imagePrompt must be a complete standalone image-generation prompt that specifies the established character identity, action, location, shot/composition, lighting, mood and continuity details needed for consistency; avoid random text, captions, watermarks, logos, collages or panel layouts. Preserve continuity from the previous chapter and previous segment; do not invent events. Return scenes in chapter order. Every scene should connect causally and visually to its predecessor. Carry clothing, location layout, time of day, props, injuries, screen direction and character position from the prior scene until the story explicitly changes them."
     ].filter(Boolean).join("\n");
 
     const raw=await generateVertexText(prompt);
     results.push(JSON.parse(cleanJson(raw)) as Record<string,unknown>);
     }
     const summary=results.map((item)=>stringValue(item.summary)).filter(Boolean).join(" ");
+    const explainer=results.map((item)=>stringValue(item.explainer)).filter(Boolean).join("\n\n");
+    const visualStyle=results.map((item)=>stringValue(item.visualStyle)).find(Boolean)||requestedVisualStyle;
 
     const characters=results.flatMap((item)=>arrayValue(item.characters)).map((value)=>{
       const item=objectValue(value);
@@ -136,12 +140,13 @@ export async function POST(req:Request){
         cameraAngle:stringValue(item.cameraAngle,"eye level"),
         cameraDirection:stringValue(item.cameraDirection,"preserve screen direction"),
         continuityNotes:stringValue(item.continuityNotes,"Continue persistent character and environment state"),
+        imagePrompt:stringValue(item.imagePrompt),
         characters:sceneCharacters
       };
     }).filter((scene)=>scene.sourceText);
 
     if(!scenes.length)throw new Error("Story analyzer returned no usable scenes.");
-    return NextResponse.json({summary,characters,locations,scenes,model:process.env.GEMINI_STORY_MODEL?.trim()||"gemini-3.1-pro-preview"});
+    return NextResponse.json({summary,explainer,visualStyle,characters,locations,scenes,model:process.env.GEMINI_STORY_MODEL?.trim()||"gemini-3.1-pro-preview"});
   }catch(error){
     console.error("Novel chapter analysis failed",error);
     return NextResponse.json({error:error instanceof Error?error.message:"Chapter analysis failed"},{status:502});
