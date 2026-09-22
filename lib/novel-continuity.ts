@@ -1,13 +1,5 @@
 import type {Character,CinematicImage,Location,Project,SceneCharacterState} from "./types";
 
-export type SceneDetail="standard"|"highest"|"ultra";
-
-export function sceneTarget(text:string,detail:SceneDetail){
-  const words=text.trim().split(/\s+/).filter(Boolean).length;
-  const wordsPerScene={standard:80,highest:24,ultra:16}[detail];
-  return Math.max(1,Math.ceil(words/wordsPerScene));
-}
-
 export function canonicalName(name:string){return name.trim().toLocaleLowerCase().replace(/[^\p{L}\p{N}]+/gu," ").trim()}
 
 export function findNamed<T extends {name:string}>(items:T[],name:string):T|undefined{
