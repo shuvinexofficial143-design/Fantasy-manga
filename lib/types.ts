@@ -1,4 +1,4 @@
-export type ReferenceImage={id:string;name:string;dataUrl:string};
+export type ReferenceImage={id:string;name:string;dataUrl:string};\nexport type VisualDensity="standard"|"highest"|"ultra";
 
 export type Character={
   id:string;
