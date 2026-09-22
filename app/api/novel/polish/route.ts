@@ -18,7 +18,6 @@ function cleanJson(value:string){
 export async function POST(req:Request){
   try{
     const body=await req.json() as Body;
-    const chapterNumber=Math.max(1,Math.trunc(Number(body.chapterNumber)||1));
     const draftExplainers=stringArray(body.draftExplainers);
     const partSummaries=stringArray(body.partSummaries);
     const previousSummary=stringValue(body.previousSummary);
