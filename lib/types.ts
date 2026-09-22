@@ -1,4 +1,5 @@
-export type ReferenceImage={id:string;name:string;dataUrl:string};\nexport type VisualDensity="standard"|"highest"|"ultra";
+export type ReferenceImage={id:string;name:string;dataUrl:string};
+export type VisualDensity="standard"|"highest"|"ultra";
 
 export type Character={
   id:string;
@@ -59,6 +60,7 @@ export type NovelChapter={
   summary?:string;
   explainer?:string;
   visualStyle?:string;
+  visualDensity?:VisualDensity;
   analysisProgress?:ChapterAnalysisProgress;
   scannedAt:string;
   analyzedAt?:string;
@@ -114,6 +116,7 @@ export type Project={
   aspectRatio:string;
   worldNotes:string;
   continuityMode:"strict"|"balanced";
+  visualDensity:VisualDensity;
   styleReferenceImage?:string;
   novelImport?:NovelImportState;
   characters:Character[];
