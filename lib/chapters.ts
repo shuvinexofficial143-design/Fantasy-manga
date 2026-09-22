@@ -1,5 +1,7 @@
 import type {NovelChapter} from "./types";
 
+const ANALYSIS_PROFILE="micro-visual-v2";
+
 export function nextChapterNumber(chapters:NovelChapter[]){
   return chapters.reduce((max,chapter)=>Math.max(max,chapter.number),0)+1;
 }
