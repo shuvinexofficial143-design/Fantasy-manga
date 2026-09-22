@@ -1,8 +1,9 @@
 "use client";
 
-import {BookOpenText,FilePlus2,Plus} from "lucide-react";
+import {BookOpenText,FilePlus2,Plus,Trash2} from "lucide-react";
 import {useRouter} from "next/navigation";
 import {createDraftChapter,nextChapterNumber,VISUAL_DENSITY_OPTIONS} from "@/lib/chapters";
+import {createProject} from "@/lib/default-project";
 import {useProject} from "@/components/project-provider";
 import {STYLE_PRESETS} from "@/lib/style-presets";
 import type {ImageStylePreset,VisualDensity} from "@/lib/types";
@@ -20,6 +21,21 @@ export default function ProjectsPage(){
     ...current,
     projects:current.projects.map((item)=>item.id===projectId?{...item,imageStylePreset,updatedAt:new Date().toISOString()}:item)
   }));
+
+  const deleteProject=(projectId:string,projectName:string)=>{
+    if(!window.confirm('Delete "'+projectName+'"? इसके chapters, prompts और generated images इस browser workspace से हट जाएँगे।'))return;
+    setState((current)=>{
+      const remaining=current.projects.filter((item)=>item.id!==projectId);
+      if(!remaining.length){
+        const replacement=createProject("My Cinematic Project");
+        return {activeProjectId:replacement.id,projects:[replacement]};
+      }
+      return {
+        activeProjectId:current.activeProjectId===projectId?remaining[0].id:current.activeProjectId,
+        projects:remaining
+      };
+    });
+  };
 
   const createChapter=(projectId:string)=>{
     const target=state.projects.find((item)=>item.id===projectId);
@@ -64,7 +80,10 @@ export default function ProjectsPage(){
                 <div className="text-lg font-black text-slate-900">{item.name}</div>
                 <div className="mt-1 text-xs text-slate-500">{chapters.length} chapter{chapters.length===1?"":"s"} · {item.images.length} visuals · {item.characters.length} characters</div>
               </div>
-              {isActive&&<span className="rounded-full bg-violet-50 px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-violet-700">Active</span>}
+              <div className="flex items-center gap-2">
+                {isActive&&<span className="rounded-full bg-violet-50 px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-violet-700">Active</span>}
+                <button onClick={(event)=>{event.stopPropagation();deleteProject(item.id,item.name)}} className="inline-flex items-center gap-1 rounded-lg border border-red-200 bg-red-50 px-2.5 py-1.5 text-[10px] font-black uppercase text-red-600 hover:bg-red-100"><Trash2 size={12}/> Delete</button>
+              </div>
             </div>
           </button>
 
