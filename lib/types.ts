@@ -39,6 +39,17 @@ export type NovelImportError={
   createdAt:string;
 };
 
+export type ChapterAnalysisProgress={
+  sourceKey:string;
+  totalParts:number;
+  completedParts:number;
+  status:"processing"|"paused"|"complete";
+  partSummaries:string[];
+  partExplainers:string[];
+  partSceneIds:string[][];
+  updatedAt:string;
+};
+
 export type NovelChapter={
   number:number;
   title:string;
@@ -48,10 +59,11 @@ export type NovelChapter={
   summary?:string;
   explainer?:string;
   visualStyle?:string;
+  analysisProgress?:ChapterAnalysisProgress;
   scannedAt:string;
   analyzedAt?:string;
   sceneIds:string[];
-  status:"draft"|"scanned"|"analyzed"|"generated"|"error";
+  status:"draft"|"scanned"|"analyzing"|"analyzed"|"generated"|"error";
   error?:string;
 };
 
