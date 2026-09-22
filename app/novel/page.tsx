@@ -97,6 +97,7 @@ export default function NovelImportPage(){
 
   const selectedChapter=useMemo(()=>novel.chapters.find((item)=>item.number===chapterNumber),[novel.chapters,chapterNumber]);
   const effectiveChapterText=(manualText.trim()||selectedChapter?.sourceText.trim()||"");
+  const analysisPartCount=useMemo(()=>effectiveChapterText.length>=120?splitChapterLogically(effectiveChapterText).length:0,[effectiveChapterText]);
   const latestChapter=useMemo(()=>[...novel.chapters].sort((a,b)=>b.number-a.number)[0],[novel.chapters]);
   const commit=(next:Project)=>setState((current)=>({...current,projects:current.projects.map((item)=>item.id===next.id?next:item)}));
   const patchImport=(value:Partial<NovelImportState>)=>commit({...project,novelImport:{...novel,...value},updatedAt:new Date().toISOString()});
@@ -411,7 +412,7 @@ export default function NovelImportPage(){
       <label className="mt-5 grid gap-1.5 text-sm font-semibold text-slate-700">
         Chapter {chapterNumber} Story Input
         <textarea value={manualText} disabled={!!busy} onChange={(e)=>setManualText(e.target.value)} placeholder="पूरा chapter text यहाँ paste करें…" className="min-h-64 rounded-xl border border-slate-200 px-3 py-3 text-sm leading-6"/>
-        <span className="text-xs font-normal text-slate-500">{manualText.length.toLocaleString()} characters</span>
+        <span className="text-xs font-normal text-slate-500">{effectiveChapterText.length.toLocaleString()} characters{analysisPartCount?` · ${analysisPartCount} logical analysis part${analysisPartCount===1?"":"s"}`:""}</span>
       </label>
 
       <div className="mt-3 flex flex-wrap items-center gap-3">
