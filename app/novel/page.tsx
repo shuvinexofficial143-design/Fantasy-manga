@@ -1,20 +1,22 @@
 "use client";
 
 import {useMemo,useState} from "react";
-import {AlertTriangle,BookOpenCheck,ExternalLink,Globe2,Loader2,Lock,LockOpen,Play,RefreshCw,ScanSearch,Sparkles} from "lucide-react";
+import {AlertTriangle,BookOpenCheck,Copy,ExternalLink,Globe2,Loader2,Lock,LockOpen,Play,RefreshCw,ScanSearch,Sparkles} from "lucide-react";
 import {buildCinematicPrompt,hashString} from "@/lib/cinematic";
 import {createImage} from "@/lib/default-project";
 import {NOVEL_SOURCES,sourceForUrl} from "@/lib/novel-sources";
 import {replaceChapterScenes} from "@/lib/novel-workflow";
-import {findLocation,findNamed,namedSceneCharacters,novelReferences,sceneTarget,type SceneDetail} from "@/lib/novel-continuity";
+import {findLocation,findNamed,namedSceneCharacters,novelReferences} from "@/lib/novel-continuity";
 import type {Character,CinematicImage,Location,NovelChapter,NovelImportError,NovelImportState,Project} from "@/lib/types";
 import {useProject} from "@/components/project-provider";
 
 const uid=()=>typeof crypto!=="undefined"&&"randomUUID" in crypto?crypto.randomUUID():String(Date.now())+"-"+Math.random().toString(36).slice(2);
-const emptyImport=():NovelImportState=>({novelTitle:"",sceneDetail:"standard",locked:false,currentChapter:1,autoGenerate:true,chapters:[],errorLog:[]});
+const emptyImport=():NovelImportState=>({novelTitle:"",locked:false,currentChapter:1,autoGenerate:false,chapters:[],errorLog:[]});
 
 type AnalyzePayload={
   summary:string;
+  explainer:string;
+  visualStyle:string;
   characters:Array<{name:string;role:string;appearance:string;outfit:string;continuityNotes:string}>;
   locations:Array<{name:string;description:string;lighting:string;continuityNotes:string}>;
   scenes:Array<{
@@ -25,6 +27,7 @@ type AnalyzePayload={
     cameraAngle:string;
     cameraDirection:string;
     continuityNotes:string;
+    imagePrompt:string;
     characters:Array<{name:string;position:string;action:string;direction:string;expression:string;stateNotes:string}>;
   }>;
   error?:string;
@@ -80,6 +83,17 @@ export default function NovelImportPage(){
   const detectedSource=useMemo(()=>sourceForUrl(manualUrl.trim()||storyPageUrl.trim()),[manualUrl,storyPageUrl]);
   const commit=(next:Project)=>setState((current)=>({...current,projects:current.projects.map((item)=>item.id===next.id?next:item)}));
   const patchImport=(value:Partial<NovelImportState>)=>commit({...project,novelImport:{...novel,...value},updatedAt:new Date().toISOString()});
+  const copyText=async(text:string,label:string)=>{try{await navigator.clipboard.writeText(text);setNotice(label+" copied.");setError("")}catch{setError("Copy failed. Browser clipboard permission check करें.")}};
+  const chapterVisualPrompts=(chapter:NovelChapter)=>{
+    const ids=new Set(chapter.sceneIds);
+    const ordered=[...project.images].sort((a,b)=>a.sceneNumber-b.sceneNumber);
+    return ordered.filter((scene)=>ids.has(scene.id)).map((scene,index)=>{
+      const sceneIndex=ordered.findIndex((item)=>item.id===scene.id);
+      const previous=sceneIndex>0?ordered[sceneIndex-1]:undefined;
+      const prompt=scene.prompt||buildCinematicPrompt({scene,project,previousScene:previous});
+      return `Visual ${index+1}\nStory Moment: ${scene.sourceText}\n\nImage Prompt:\n${prompt}`;
+    }).join("\n\n---\n\n");
+  };
 
   const logError=(working:Project,number:number,message:string,attemptedUrl?:string,statusCode?:number)=>{
     const current=working.novelImport||emptyImport();
@@ -204,7 +218,7 @@ export default function NovelImportPage(){
         chapterText:scan.chapter.sourceText,
         existingCharacters:working.characters,
         existingLocations:working.locations,
-        sceneDetail:current.sceneDetail||"standard",
+        visualStyle:working.visualStyle,
         previousSummary
       })});
       const analysis=await analyzeResponse.json() as AnalyzePayload;
@@ -228,12 +242,15 @@ export default function NovelImportPage(){
         scene.cameraAngle=item.cameraAngle||scene.cameraAngle;
         scene.cameraDirection=item.cameraDirection||scene.cameraDirection;
         scene.continuityNotes=item.continuityNotes||("Continue chapter "+number+" state from the previous scene.");
+        scene.prompt=item.imagePrompt||"";
         return scene;
       });
 
       const analyzedChapter:NovelChapter={
         ...scannedChapter,
         summary:analysis.summary,
+        explainer:analysis.explainer,
+        visualStyle:analysis.visualStyle,
         analyzedAt:new Date().toISOString(),
         sceneIds:newScenes.map((scene)=>scene.id),
         status:"analyzed",
@@ -297,7 +314,7 @@ export default function NovelImportPage(){
         chapterText,
         existingCharacters:working.characters,
         existingLocations:working.locations,
-        sceneDetail:current.sceneDetail||"standard",
+        visualStyle:working.visualStyle,
         previousSummary
       })});
       const analysis=await analyzeResponse.json() as AnalyzePayload;
@@ -321,12 +338,15 @@ export default function NovelImportPage(){
         scene.cameraAngle=item.cameraAngle||scene.cameraAngle;
         scene.cameraDirection=item.cameraDirection||scene.cameraDirection;
         scene.continuityNotes=item.continuityNotes||("Continue chapter "+number+" state from the previous scene.");
+        scene.prompt=item.imagePrompt||"";
         return scene;
       });
 
       const analyzedChapter:NovelChapter={
         ...scannedChapter,
         summary:analysis.summary,
+        explainer:analysis.explainer,
+        visualStyle:analysis.visualStyle,
         analyzedAt:new Date().toISOString(),
         sceneIds:newScenes.map((scene)=>scene.id),
         status:"analyzed",
@@ -377,7 +397,7 @@ export default function NovelImportPage(){
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div>
           <div className="flex items-center gap-2 text-xl font-black"><ScanSearch className="text-violet-600"/> Novel Chapter Import</div>
-          <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">पहली successful scan के बाद source website lock रहती है। उसके बाद Chapter 2, 3… उसी source के Next Chapter link या saved URL pattern से scan होते हैं। Login/paywall/anti-bot protection bypass नहीं की जाती।</p>
+          <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">Chapter scan/paste करके एक copy-ready natural explainer और consistency-aware visual prompts बनाइए। Visual count content तय करेगा; voice generation, TTS, timestamps और durations इस workflow का हिस्सा नहीं हैं। Source importer login/paywall/anti-bot protection bypass नहीं करता।</p>
         </div>
         <div className={"inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-bold "+(novel.locked?"bg-emerald-50 text-emerald-700":"bg-amber-50 text-amber-700")}>
           {novel.locked?<Lock size={14}/>:<LockOpen size={14}/>}
@@ -406,18 +426,11 @@ export default function NovelImportPage(){
         </label>
       </div>
 
-      <label className="mt-4 grid max-w-md gap-1.5 text-sm font-semibold text-slate-700">Chapter scene detail
-        <select value={novel.sceneDetail||"standard"} disabled={!!busy} onChange={(e)=>patchImport({sceneDetail:e.target.value as SceneDetail})} className="rounded-xl border border-slate-200 px-3 py-2.5">
-          <option value="standard">Standard — major moments</option>
-          <option value="highest">Highest — actions and reactions</option>
-          <option value="ultra">Ultra Highest — small story beats</option>
-        </select>
-        <span className="text-xs font-normal text-slate-500">{manualText.trim()?`लगभग ${sceneTarget(manualText,novel.sceneDetail||"standard")} scenes का लक्ष्य · `:""}हर scene की एक image बनेगी; ज़्यादा detail में समय और API खर्च बढ़ेंगे।</span>
-      </label>
+      <div className="mt-4 rounded-xl border border-violet-100 bg-violet-50 p-3 text-xs leading-5 text-violet-800">Visual count fixed नहीं है। AI chapter के meaningful events, actions, location changes, interactions, reveals और emotional shifts देखकर जितने visuals जरूरी हों उतने ही बनाएगा। कोई timestamp, seconds या voice/TTS output नहीं बनेगा।</div>
       <div className="mt-4 flex flex-wrap items-center gap-3">
         <button disabled={!!busy} onClick={()=>void scanAnalyze()} className="inline-flex items-center gap-2 rounded-xl bg-violet-600 px-5 py-3 text-sm font-bold text-white shadow-sm disabled:opacity-50">
           {busy?<Loader2 className="animate-spin" size={17}/>:<ScanSearch size={17}/>}
-          Scan URL + Analyze {novel.autoGenerate?"+ Generate":""}
+          Scan URL + Create Explainer {novel.autoGenerate?"+ Generate Images":""}
         </button>
         <label className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-700">
           <input type="checkbox" checked={novel.autoGenerate} disabled={!!busy} onChange={(e)=>patchImport({autoGenerate:e.target.checked})}/>
@@ -434,7 +447,7 @@ export default function NovelImportPage(){
       </label>
       <button disabled={!!busy||manualText.trim().length<120} onClick={()=>void analyzePasted()} className="mt-3 inline-flex items-center gap-2 rounded-xl border border-violet-200 bg-violet-50 px-5 py-3 text-sm font-bold text-violet-700 disabled:opacity-50">
         {busy==="paste"?<Loader2 className="animate-spin" size={17}/>:<BookOpenCheck size={17}/>}
-        Analyze Pasted Chapter {chapterNumber} {novel.autoGenerate?"+ Generate Images":""}
+        Create Explainer + Visual Prompts {chapterNumber} {novel.autoGenerate?"+ Generate Images":""}
       </button>
 
       {novel.locked&&<div className="mt-5 grid gap-3 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900 md:grid-cols-2">
@@ -481,14 +494,17 @@ export default function NovelImportPage(){
           <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
             <div className="min-w-0">
               <div className="font-bold">Chapter {chapter.number} · {chapter.title}</div>
-              <div className="mt-1 flex flex-wrap gap-2 text-xs text-slate-500"><span>{chapter.sourceText.length.toLocaleString()} chars scanned</span><span>·</span><span>{chapter.sceneIds.length} scenes</span><span>·</span><span className="font-semibold uppercase">{chapter.status}</span></div>
+              <div className="mt-1 flex flex-wrap gap-2 text-xs text-slate-500"><span>{chapter.sourceText.length.toLocaleString()} chars scanned</span><span>·</span><span>{chapter.sceneIds.length} adaptive visuals</span><span>·</span><span className="font-semibold uppercase">{chapter.status}</span></div>
               {chapter.url.startsWith("http")?<a href={chapter.url} target="_blank" rel="noreferrer" className="mt-2 inline-flex max-w-full items-center gap-1 truncate text-xs font-semibold text-violet-700"><ExternalLink size={12}/>{chapter.url}</a>:<div className="mt-2 text-xs font-semibold text-slate-500">Pasted chapter text</div>}
             </div>
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
+              {chapter.explainer&&<button disabled={!!busy} onClick={()=>void copyText(chapter.explainer!,"Explainer")} className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-700 disabled:opacity-50"><Copy size={13}/> Copy Explainer</button>}
+              {chapter.sceneIds.length>0&&<button disabled={!!busy} onClick={()=>void copyText(chapterVisualPrompts(chapter),"Visual prompts")} className="inline-flex items-center gap-1.5 rounded-lg border border-violet-200 bg-violet-50 px-3 py-2 text-xs font-bold text-violet-700 disabled:opacity-50"><Copy size={13}/> Copy Visual Prompts</button>}
               {chapter.status!=="generated"&&chapter.sceneIds.length>0&&<button disabled={!!busy} onClick={()=>void generateCurrent(chapter.number)} className="inline-flex items-center gap-1.5 rounded-lg bg-violet-600 px-3 py-2 text-xs font-bold text-white disabled:opacity-50"><Play size={13}/> Generate Images</button>}
               <button disabled={!!busy} onClick={()=>{setChapterNumber(chapter.number);if(chapter.url.startsWith("http")){setManualUrl(chapter.url);setManualText("")}else{setManualText(chapter.sourceText);setManualUrl("")}}} className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700"><RefreshCw size={13}/> Rescan</button>
             </div>
           </div>
+          {chapter.explainer&&<details className="mt-4 rounded-xl border border-slate-100 bg-slate-50 p-3"><summary className="cursor-pointer text-sm font-bold text-slate-700">Complete Explainer</summary><div className="mt-3 whitespace-pre-wrap text-sm leading-6 text-slate-700">{chapter.explainer}</div></details>}
         </article>):<div className="rounded-xl border border-dashed border-slate-300 p-8 text-center text-sm text-slate-500"><Globe2 className="mx-auto mb-2"/>अभी कोई chapter scan नहीं हुआ.</div>}
       </div>
     </section>
