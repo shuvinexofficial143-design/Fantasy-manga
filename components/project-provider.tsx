@@ -42,17 +42,16 @@ async function saveState(state:StudioState){
 }
 
 function normalizeNovelImport(value:unknown):NovelImportState{
-  const base:NovelImportState={novelTitle:"",sceneDetail:"standard",locked:false,currentChapter:1,autoGenerate:true,chapters:[],errorLog:[]};
+  const base:NovelImportState={novelTitle:"",locked:false,currentChapter:1,autoGenerate:false,chapters:[],errorLog:[]};
   if(!value||typeof value!=="object")return base;
   const item=value as Partial<NovelImportState>;
   return {
     ...base,
     ...item,
     novelTitle:typeof item.novelTitle==="string"?item.novelTitle:"",
-    sceneDetail:item.sceneDetail==="highest"||item.sceneDetail==="ultra"?item.sceneDetail:"standard",
     locked:item.locked===true,
     currentChapter:Number.isFinite(item.currentChapter)?Math.max(1,Number(item.currentChapter)):1,
-    autoGenerate:item.autoGenerate!==false,
+    autoGenerate:item.autoGenerate===true,
     chapters:Array.isArray(item.chapters)?item.chapters:[],
     errorLog:Array.isArray(item.errorLog)?item.errorLog:[]
   };
