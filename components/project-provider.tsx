@@ -64,6 +64,7 @@ function normalizeProject(project:Partial<Project>):Project{
     ...project,
     worldNotes:typeof project.worldNotes==="string"?project.worldNotes:"",
     continuityMode:project.continuityMode==="balanced"?"balanced":"strict",
+    visualDensity:project.visualDensity==="highest"||project.visualDensity==="ultra"?project.visualDensity:"standard",
     novelImport:normalizeNovelImport(project.novelImport),
     characters:Array.isArray(project.characters)?project.characters.map((character)=>({...character,locked:character.locked!==false,continuityNotes:character.continuityNotes||""})):[],
     locations:Array.isArray(project.locations)?project.locations.map((location)=>({...location,locked:location.locked!==false,continuityNotes:location.continuityNotes||""})):[],
