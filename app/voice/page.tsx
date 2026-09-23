@@ -43,7 +43,7 @@ export default function VoicePage(){
   const [voiceName,setVoiceName]=useState("");
   const [speakingRate,setSpeakingRate]=useState(1);
   const [pitch,setPitch]=useState(0);
-  const [loadingVoices,setLoadingVoices]=useState(false);
+  const [loadingVoices,setLoadingVoices]=useState(true);
   const [generating,setGenerating]=useState<"preview"|"full"|"">("");
   const [error,setError]=useState("");
   const [notice,setNotice]=useState("");
@@ -173,7 +173,7 @@ export default function VoicePage(){
 
           <div className="mt-5 grid gap-4 sm:grid-cols-2">
             <label className="grid gap-1.5 text-sm font-bold text-slate-700">Language
-              <select value={languageCode} disabled={loadingVoices||!!generating} onChange={(e)=>{setLanguageCode(e.target.value);setAudioParts([])}} className="rounded-xl border border-slate-200 px-3 py-2.5">
+              <select value={languageCode} disabled={loadingVoices||!!generating} onChange={(e)=>{setLoadingVoices(true);setError("");setLanguageCode(e.target.value);setAudioParts([])}} className="rounded-xl border border-slate-200 px-3 py-2.5">
                 {LANGUAGES.map(([code,label])=><option key={code} value={code}>{label}</option>)}
               </select>
             </label>
