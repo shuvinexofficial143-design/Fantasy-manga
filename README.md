@@ -107,3 +107,26 @@ Novel Import includes a source registry with automatic URL detection.
 - **NovelNow** — currently marked unsupported for URL import because its public responses do not expose readable chapter text to this importer.
 
 Unsupported sources can still be handled through the manual chapter-text input when the user has lawful access to the text.
+
+
+## Google Cloud Text-to-Speech
+
+Voice generation is intentionally isolated from story analysis and image generation.
+
+Enable **Cloud Text-to-Speech API** (`texttospeech.googleapis.com`) on the same Google Cloud project.
+
+The TTS module reuses the existing service-account secret when present:
+
+- `VERTEX_AI_SERVICE_ACCOUNT_JSON`
+- or `VERTEX_AI_SERVICE_ACCOUNT_BASE64`
+
+Optional TTS-specific overrides:
+
+- `GOOGLE_TTS_SERVICE_ACCOUNT_JSON`
+- `GOOGLE_TTS_SERVICE_ACCOUNT_BASE64`
+- `GOOGLE_TTS_API_KEY`
+- `GOOGLE_TTS_LANGUAGE=hi-IN`
+- `GOOGLE_TTS_VOICE=hi-IN-Neural2-B`
+- `GOOGLE_TTS_SPEAKING_RATE=1`
+
+The Voice/TTS page discovers currently available Google Cloud voices dynamically, lets the user choose a voice family and exact voice, and generates MP3 audio from the saved chapter Explainer. It does not write to chapter analysis, scene, prompt, image, or continuity state.
