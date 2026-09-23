@@ -52,6 +52,9 @@ export type ChapterAnalysisProgress={
   updatedAt:string;
 };
 
+export type VideoPlanSegment={sceneId:string;order:number;narration:string};
+export type ChapterVideoPlan={createdAt:string;segments:VideoPlanSegment[]};
+
 export type NovelChapter={
   number:number;
   title:string;
@@ -62,6 +65,7 @@ export type NovelChapter={
   explainer?:string;
   visualStyle?:string;
   visualDensity?:VisualDensity;
+  videoPlan?:ChapterVideoPlan;
   analysisProgress?:ChapterAnalysisProgress;
   scannedAt:string;
   analyzedAt?:string;
