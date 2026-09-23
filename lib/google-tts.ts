@@ -28,34 +28,51 @@ type SynthesizeOptions={
 
 let tokenCache:{accessToken:string;expiresAt:number}|null=null;
 
+function parseServiceAccountJson(raw:string|undefined|null):ServiceAccount|null{
+  if(!raw?.trim())return null;
+  try{
+    const parsed=JSON.parse(raw.trim()) as Partial<ServiceAccount>;
+    if(!parsed.client_email||!parsed.private_key)return null;
+    return parsed as ServiceAccount;
+  }catch{
+    return null;
+  }
+}
+
 function parseServiceAccount():ServiceAccount|null{
   const applicationCredentials=process.env.GOOGLE_APPLICATION_CREDENTIALS?.trim();
-  const direct=[
+
+  const rawCandidates=[
     process.env.GOOGLE_TTS_SERVICE_ACCOUNT_JSON,
     process.env.VERTEX_AI_SERVICE_ACCOUNT_JSON,
     process.env.GOOGLE_SERVICE_ACCOUNT_JSON,
     process.env.GCP_SERVICE_ACCOUNT_JSON,
     process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON,
     applicationCredentials?.startsWith("{")?applicationCredentials:undefined
-  ].find((value)=>typeof value==="string"&&value.trim())?.trim();
+  ];
 
-  const encoded=[
+  for(const raw of rawCandidates){
+    const parsed=parseServiceAccountJson(raw);
+    if(parsed)return parsed;
+  }
+
+  const base64Candidates=[
     process.env.GOOGLE_TTS_SERVICE_ACCOUNT_BASE64,
     process.env.VERTEX_AI_SERVICE_ACCOUNT_BASE64,
     process.env.GOOGLE_SERVICE_ACCOUNT_BASE64,
     process.env.GCP_SERVICE_ACCOUNT_BASE64
-  ].find((value)=>typeof value==="string"&&value.trim())?.trim();
+  ];
 
-  const raw=direct||(encoded?Buffer.from(encoded,"base64").toString("utf8"):"");
-  if(!raw)return null;
-
-  try{
-    const parsed=JSON.parse(raw) as Partial<ServiceAccount>;
-    if(!parsed.client_email||!parsed.private_key)return null;
-    return parsed as ServiceAccount;
-  }catch{
-    return null;
+  for(const encoded of base64Candidates){
+    if(!encoded?.trim())continue;
+    try{
+      const decoded=Buffer.from(encoded.trim(),"base64").toString("utf8");
+      const parsed=parseServiceAccountJson(decoded);
+      if(parsed)return parsed;
+    }catch{}
   }
+
+  return null;
 }
 
 function base64url(value:string|Buffer){
