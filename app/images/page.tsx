@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import {AlertTriangle,ImageIcon,Loader2,Play,Sparkles} from "lucide-react";
+import {AlertTriangle,ImageIcon,Loader2,Palette,Play,Sparkles} from "lucide-react";
 import {useState} from "react";
 import {useProject} from "@/components/project-provider";
 import {buildCinematicPrompt,hashString} from "@/lib/cinematic";
@@ -89,6 +89,7 @@ export default function ImagesPage(){
   };
 
   const ready=scenes.filter((scene)=>Boolean(scene.image)).length;
+  const styleReferenceCount=(project.styleReferences||[]).length;
 
   return <div className="mx-auto max-w-6xl space-y-6">
     <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
@@ -98,10 +99,14 @@ export default function ImagesPage(){
           <h1 className="mt-2 text-3xl font-black">Images</h1>
           <p className="mt-2 text-sm leading-6 text-slate-500">{chapter?"Chapter "+chapter.number+" · "+ready+" / "+scenes.length+" images ready":"कोई active chapter नहीं है।"}</p>
         </div>
-        {scenes.length>0&&<button disabled={!!busy} onClick={()=>void generateSequence()} className="inline-flex items-center justify-center gap-2 rounded-xl bg-violet-600 px-4 py-2.5 text-sm font-black text-white disabled:opacity-50"><Sparkles size={16}/> Generate Remaining</button>}
+        <div className="flex flex-wrap gap-2">
+          <Link href="/references" className="inline-flex items-center justify-center gap-2 rounded-xl border border-fuchsia-200 bg-fuchsia-50 px-4 py-2.5 text-sm font-black text-fuchsia-700"><Palette size={16}/> References {styleReferenceCount}/4</Link>
+          {scenes.length>0&&<button disabled={!!busy} onClick={()=>void generateSequence()} className="inline-flex items-center justify-center gap-2 rounded-xl bg-violet-600 px-4 py-2.5 text-sm font-black text-white disabled:opacity-50"><Sparkles size={16}/> Generate Remaining</button>}
+        </div>
       </div>
     </section>
 
+    {styleReferenceCount>0&&<div className="rounded-2xl border border-fuchsia-200 bg-fuchsia-50 p-4 text-sm font-semibold text-fuchsia-800">Style lock active: {styleReferenceCount} uploaded reference{styleReferenceCount===1?"":"s"} will be sent with each new image generation.</div>}
     {progress&&<div className="rounded-2xl border border-violet-200 bg-violet-50 p-4 text-sm font-medium text-violet-800"><Loader2 className="mr-2 inline animate-spin" size={15}/>{progress}</div>}
     {notice&&<div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm font-medium text-emerald-800">{notice}</div>}
     {error&&<div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm font-medium text-red-700"><AlertTriangle className="mr-2 inline" size={15}/>{error}</div>}
