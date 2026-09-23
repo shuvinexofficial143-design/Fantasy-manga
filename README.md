@@ -115,7 +115,8 @@ Voice generation is intentionally isolated from story analysis and image generat
 
 Enable **Cloud Text-to-Speech API** (`texttospeech.googleapis.com`) on the same Google Cloud project.
 
-The TTS module reuses the existing service-account secret when present:
+The TTS module reuses the existing service-account secret when present. Cloud Text-to-Speech requires OAuth/service-account credentials; the Vertex API key is not used for TTS.
+
 
 - `VERTEX_AI_SERVICE_ACCOUNT_JSON`
 - or `VERTEX_AI_SERVICE_ACCOUNT_BASE64`
@@ -124,7 +125,6 @@ Optional TTS-specific overrides:
 
 - `GOOGLE_TTS_SERVICE_ACCOUNT_JSON`
 - `GOOGLE_TTS_SERVICE_ACCOUNT_BASE64`
-- `GOOGLE_TTS_API_KEY`
 - `GOOGLE_TTS_LANGUAGE=hi-IN`
 - `GOOGLE_TTS_VOICE=hi-IN-Neural2-B`
 - `GOOGLE_TTS_SPEAKING_RATE=1`
