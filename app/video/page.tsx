@@ -87,6 +87,7 @@ export default function VideoPage(){
         headers:{"Content-Type":"application/json"},
         body:JSON.stringify({
           chapterNumber:chapter.number,
+          languageCode,
           explainer:chapter.explainer,
           scenes:scenes.map((scene)=>({id:scene.id,title:scene.title,sourceText:scene.sourceText}))
         })
@@ -94,7 +95,7 @@ export default function VideoPage(){
       const data=await response.json() as {segments?:VideoPlanSegment[];error?:string};
       if(!response.ok||!data.segments?.length)throw new Error(data.error||"Sync plan failed.");
       savePlan(data.segments);
-      setNotice(data.segments.length+" visuals की narration sync plan तैयार है।");
+      setNotice(data.segments.length+" visuals की "+(languageCode==="hi-IN"?"Hindi":"selected-language")+" narration sync plan तैयार है। अब Generate Synced Voice दबाएँ।");
     }catch(reason){
       setError(reason instanceof Error?reason.message:"Sync plan failed.");
     }finally{setBusy("")}
@@ -199,10 +200,10 @@ export default function VideoPage(){
     <section className="grid gap-5 lg:grid-cols-[.9fr_1.1fr]">
       <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
         <div className="font-black text-slate-900">Voice for final video</div>
-        <div className="mt-1 text-xs leading-5 text-slate-500">यह selection सिर्फ Video Builder की synced narration पर लागू होगी।</div>
+        <div className="mt-1 text-xs leading-5 text-slate-500">यह language Sync Plan की script और TTS दोनों पर लागू होगी। Language बदलने पर Sync Plan दोबारा बनाना जरूरी है।</div>
         <div className="mt-4 grid gap-3 sm:grid-cols-2">
           <label className="grid gap-1 text-xs font-bold text-slate-600">Language
-            <select value={languageCode} disabled={loadingVoices||!!busy} onChange={(e)=>{setLoadingVoices(true);setLanguageCode(e.target.value);setAudioItems([])}} className="rounded-xl border border-slate-200 px-3 py-2.5 text-sm">
+            <select value={languageCode} disabled={loadingVoices||!!busy} onChange={(e)=>{setLoadingVoices(true);setLanguageCode(e.target.value);setAudioItems([]);setDurations({});savePlan([])}} className="rounded-xl border border-slate-200 px-3 py-2.5 text-sm">
               <option value="hi-IN">Hindi (India)</option><option value="en-IN">English (India)</option><option value="en-US">English (US)</option>
             </select>
           </label>
