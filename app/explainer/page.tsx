@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import {BookOpenText,Copy} from "lucide-react";
+import {BookOpenText,Copy,Headphones} from "lucide-react";
 import {useState} from "react";
 import {useProject} from "@/components/project-provider";
 
@@ -26,7 +26,10 @@ export default function ExplainerPage(){
           <h1 className="mt-2 text-3xl font-black">Explainer</h1>
           <p className="mt-2 text-sm leading-6 text-slate-500">{chapter?"Chapter "+chapter.number+" · "+(chapter.title||"Untitled"):"कोई active chapter नहीं है।"}</p>
         </div>
-        {chapter?.explainer&&<button onClick={()=>void copy()} className="inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-bold text-white"><Copy size={15}/>{copied?"Copied":"Copy Explainer"}</button>}
+        {chapter?.explainer&&<div className="flex flex-wrap gap-2">
+          <button onClick={()=>void copy()} className="inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-bold text-white"><Copy size={15}/>{copied?"Copied":"Copy Explainer"}</button>
+          <Link href="/voice" className="inline-flex items-center justify-center gap-2 rounded-xl bg-sky-600 px-4 py-2.5 text-sm font-bold text-white"><Headphones size={15}/> Create Voice</Link>
+        </div>}
       </div>
     </section>
 
