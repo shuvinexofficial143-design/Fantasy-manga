@@ -60,8 +60,6 @@ export default function VoicePage(){
   useEffect(()=>{
     const id=++requestId.current;
     const controller=new AbortController();
-    setLoadingVoices(true);
-    setError("");
     void fetch("/api/tts/voices?languageCode="+encodeURIComponent(languageCode),{signal:controller.signal})
       .then(async(response)=>{
         const data=await response.json() as {voices?:VoiceOption[];defaults?:{voiceName?:string};error?:string};
