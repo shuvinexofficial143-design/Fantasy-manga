@@ -29,10 +29,23 @@ type SynthesizeOptions={
 let tokenCache:{accessToken:string;expiresAt:number}|null=null;
 
 function parseServiceAccount():ServiceAccount|null{
-  const direct=process.env.GOOGLE_TTS_SERVICE_ACCOUNT_JSON?.trim()
-    ||process.env.VERTEX_AI_SERVICE_ACCOUNT_JSON?.trim();
-  const encoded=process.env.GOOGLE_TTS_SERVICE_ACCOUNT_BASE64?.trim()
-    ||process.env.VERTEX_AI_SERVICE_ACCOUNT_BASE64?.trim();
+  const applicationCredentials=process.env.GOOGLE_APPLICATION_CREDENTIALS?.trim();
+  const direct=[
+    process.env.GOOGLE_TTS_SERVICE_ACCOUNT_JSON,
+    process.env.VERTEX_AI_SERVICE_ACCOUNT_JSON,
+    process.env.GOOGLE_SERVICE_ACCOUNT_JSON,
+    process.env.GCP_SERVICE_ACCOUNT_JSON,
+    process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON,
+    applicationCredentials?.startsWith("{")?applicationCredentials:undefined
+  ].find((value)=>typeof value==="string"&&value.trim())?.trim();
+
+  const encoded=[
+    process.env.GOOGLE_TTS_SERVICE_ACCOUNT_BASE64,
+    process.env.VERTEX_AI_SERVICE_ACCOUNT_BASE64,
+    process.env.GOOGLE_SERVICE_ACCOUNT_BASE64,
+    process.env.GCP_SERVICE_ACCOUNT_BASE64
+  ].find((value)=>typeof value==="string"&&value.trim())?.trim();
+
   const raw=direct||(encoded?Buffer.from(encoded,"base64").toString("utf8"):"");
   if(!raw)return null;
 
@@ -43,13 +56,6 @@ function parseServiceAccount():ServiceAccount|null{
   }catch{
     return null;
   }
-}
-
-function apiKey(){
-  return process.env.GOOGLE_TTS_API_KEY?.trim()
-    ||process.env.GOOGLE_CLOUD_API_KEY?.trim()
-    ||process.env.VERTEX_AI_API_KEY?.trim()
-    ||"";
 }
 
 function base64url(value:string|Buffer){
@@ -95,16 +101,14 @@ async function accessToken(account:ServiceAccount){
 
 async function ttsFetch(path:string,init:RequestInit={}){
   const account=parseServiceAccount();
-  const key=apiKey();
-  if(!account&&!key){
-    throw new Error("Google TTS is not configured. Existing VERTEX_AI_SERVICE_ACCOUNT_JSON can be reused, or add GOOGLE_TTS_API_KEY.");
+  if(!account){
+    throw new Error("Google Cloud TTS needs OAuth service-account credentials. Add the complete JSON as VERTEX_AI_SERVICE_ACCOUNT_JSON (or GOOGLE_TTS_SERVICE_ACCOUNT_JSON) in Vercel Production environment, then redeploy.");
   }
 
   const url=new URL(TTS_BASE_URL+path);
   const headers=new Headers(init.headers);
   headers.set("Content-Type","application/json; charset=utf-8");
-  if(account)headers.set("Authorization","Bearer "+await accessToken(account));
-  else url.searchParams.set("key",key);
+  headers.set("Authorization","Bearer "+await accessToken(account));
 
   const response=await fetch(url,{...init,headers,cache:"no-store"});
   if(!response.ok){
