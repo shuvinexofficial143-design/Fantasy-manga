@@ -5,7 +5,7 @@ export const runtime="nodejs";
 export const maxDuration=300;
 
 type SceneInput={id?:unknown;title?:unknown;sourceText?:unknown};
-type Body={explainer?:unknown;scenes?:unknown;chapterNumber?:unknown};
+type Body={explainer?:unknown;scenes?:unknown;chapterNumber?:unknown;languageCode?:unknown};
 
 function text(value:unknown){return typeof value==="string"?value.trim():""}
 function cleanJson(value:string){
@@ -32,12 +32,15 @@ export async function POST(req:Request){
     if(!scenes.length)return NextResponse.json({error:"Analyzed visual scenes are required."},{status:400});
 
     const chapterNumber=Math.max(1,Math.trunc(Number(body.chapterNumber)||1));
+    const languageCode=text(body.languageCode)||"hi-IN";
+    const languageName=languageCode.startsWith("hi")?"Hindi":languageCode.startsWith("en")?"English":languageCode;
     const prompt=[
       "You are a professional illustrated-story video editor. Build a narration-to-visual sync plan.",
       "Return ONLY valid JSON. No markdown.",
       "The user has a polished chapter explainer and an ordered list of visual scenes. Create EXACTLY one narration beat for EVERY supplied scene, in the SAME order.",
       "CRITICAL SYNC RULE: narration for a scene must talk about the event, action, reaction, reveal or state shown by THAT scene. Never move narration for a later event onto an earlier image and never use an earlier event under a later image.",
       "NARRATION STYLE: preserve the smooth YouTube story-explainer tone, facts, chronology, names, motivations and consequences of the supplied explainer. You may lightly rewrite and split the explainer so every visual receives a natural spoken beat. Do not turn it into dry captions or image descriptions.",
+      `OUTPUT LANGUAGE — HARD LOCK: Every narration field MUST be natural ${languageName} (${languageCode}). If the supplied explainer or scene text is in another language, translate/adapt it faithfully into ${languageName} while preserving names, facts, chronology and meaning. Never leave ordinary narration sentences in the source language. Proper names may remain unchanged.`,
       "COVERAGE RULE: use all scenes. Keep each beat concise enough that image changes feel active. A simple reaction/detail scene may receive a short phrase; a major scene may receive a longer sentence. Avoid repeating the same fact just to fill a scene.",
       "VOICE RULE: write only words meant to be spoken. No timestamps, scene numbers, editing directions, camera terms, TTS instructions, brackets or stage directions.",
       "VISUAL ORDER IS AUTHORITATIVE. The final narration must follow it without reordering scenes.",
@@ -60,7 +63,7 @@ export async function POST(req:Request){
       narration:byId.get(scene.id)||scene.sourceText
     }));
 
-    return NextResponse.json({segments,sceneCount:segments.length});
+    return NextResponse.json({segments,sceneCount:segments.length,languageCode});
   }catch(error){
     console.error("Video sync planning failed",error);
     return NextResponse.json({error:error instanceof Error?error.message:"Video sync planning failed."},{status:502});
