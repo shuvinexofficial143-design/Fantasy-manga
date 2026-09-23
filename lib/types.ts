@@ -120,6 +120,7 @@ export type Project={
   visualDensity:VisualDensity;
   imageStylePreset:ImageStylePreset;
   styleReferenceImage?:string;
+  styleReferences:ReferenceImage[];
   novelImport?:NovelImportState;
   characters:Character[];
   locations:Location[];
