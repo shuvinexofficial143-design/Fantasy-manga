@@ -24,7 +24,22 @@ export function parseReferenceDataUrl(value:string,index=0){const match=value.ma
 async function loadReference(value:string,index:number){const bytes=parseReferenceDataUrl(value,index);const prepared=await sharp(bytes).rotate().resize({width:MAX_REFERENCE_EDGE,height:MAX_REFERENCE_EDGE,fit:"inside",withoutEnlargement:true}).jpeg({quality:88}).toBuffer();return {inlineData:{mimeType:"image/jpeg",data:prepared.toString("base64")}}}
 function extractImage(payload:unknown){const data=payload as {candidates?:Array<{content?:{parts?:Array<{inlineData?:{data?:string;mimeType?:string}}>}}>} ;for(const candidate of data.candidates||[])for(const part of candidate.content?.parts||[])if(part.inlineData?.data)return {data:part.inlineData.data,mimeType:part.inlineData.mimeType||"image/jpeg"};return null}
 export function geminiConfigured(){return Boolean(projectId()&&(parseServiceAccount()||apiKey()))}
-export function vertexImageError(status:number,text:string){if(status===429||/RESOURCE_EXHAUSTED/i.test(text))return "Vertex image generation quota is exhausted (429). Check Google Cloud billing/quota or wait for the quota window to reset.";return `Vertex Gemini image request failed (${status})${text?`: ${text.replace(/\s+/g," ").slice(0,400)}`:""}`}
+export function vertexImageError(status:number,text:string){if(status===429||/RESOURCE_EXHAUSTED/i.test(text))return "Vertex image generation quota is temporarily exhausted (429). Automatic retry was unable to get capacity yet.";return `Vertex Gemini image request failed (${status})${text?`: ${text.replace(/\\s+/g," ").slice(0,400)}`:""}`}
+function sleep(ms:number){return new Promise((resolve)=>setTimeout(resolve,ms))}
+function retryDelay(attempt:number,retryAfter:string|null){const seconds=Number(retryAfter);if(Number.isFinite(seconds)&&seconds>0)return Math.min(60_000,seconds*1000);const schedule=[5_000,10_000,20_000,30_000,45_000];return schedule[Math.min(attempt,schedule.length-1)]}
+function retryableVertexResponse(status:number,text:string){return status===429||status===500||status===502||status===503||status===504||/RESOURCE_EXHAUSTED|UNAVAILABLE/i.test(text)}
+async function fetchVertexWithRetry(url:URL,init:RequestInit,maxRetries=5){
+  let lastStatus=0,lastText="";
+  for(let attempt=0;attempt<=maxRetries;attempt+=1){
+    const response=await fetch(url,init);
+    if(response.ok)return response;
+    const body=await response.text().catch(()=>"");
+    lastStatus=response.status;lastText=body;
+    if(!retryableVertexResponse(response.status,body)||attempt===maxRetries)throw new Error(vertexImageError(response.status,body));
+    await sleep(retryDelay(attempt,response.headers.get("retry-after")));
+  }
+  throw new Error(vertexImageError(lastStatus,lastText));
+}
 
 export async function generateWithGemini(input:ImageGenerationInput):Promise<ImageGenerationResult>{
   if(!geminiConfigured())throw new Error("Vertex Gemini is not configured.");
@@ -35,7 +50,6 @@ export async function generateWithGemini(input:ImageGenerationInput):Promise<Ima
   const prompt=[input.prompt,references.length?`REFERENCE ROLE MAP:\n${referenceMap}\nUse each image ONLY for its stated role. Project style references define visual language only: rendering, facial-design language, painterly detail, lighting, palette, atmosphere, material richness and cinematic finish. NEVER copy the people, objects, pose, exact composition or story content from style references. Character master images define identity/outfit; location master images define architecture; recent generated frames define immediate continuity, pose progression and props.`:"",negative,`Continuity anchor: ${input.seed}. Do not render this number as text.`,"Return exactly ONE image. No captions, speech bubbles, watermark, logo, manga page, webtoon page, comic gutters or split-panel layout."].filter(Boolean).join("\n\n");
   const multimodalParts:Array<{text:string}|{inlineData:{mimeType:string;data:string}}>=[{text:prompt}];
   refParts.forEach((part,index)=>{multimodalParts.push({text:`REFERENCE ${index+1} — ${labels[index]||"continuity reference"}`});multimodalParts.push(part)});
-  const response=await fetch(url,{method:"POST",headers,body:JSON.stringify({contents:[{role:"user",parts:multimodalParts}],generationConfig:{responseModalities:["TEXT","IMAGE"],imageConfig:{aspectRatio:nearestAspect(input.width,input.height),imageSize:"1K"}}}),cache:"no-store"});
-  if(!response.ok){const text=await response.text().catch(()=>"");throw new Error(vertexImageError(response.status,text))}
+  const response=await fetchVertexWithRetry(url,{method:"POST",headers,body:JSON.stringify({contents:[{role:"user",parts:multimodalParts}],generationConfig:{responseModalities:["TEXT","IMAGE"],imageConfig:{aspectRatio:nearestAspect(input.width,input.height),imageSize:"1K"}}}),cache:"no-store"});
   const image=extractImage(await response.json());if(!image)throw new Error("Vertex Gemini returned no image.");return {imageDataUrl:`data:${image.mimeType};base64,${image.data}`,model,provider:"gemini",seed:input.seed,referenceCount:references.length};
 }
