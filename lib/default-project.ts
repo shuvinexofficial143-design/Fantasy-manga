@@ -15,6 +15,7 @@ export function createProject(name="My Cinematic Project"):Project{
     continuityMode:"strict",
     visualDensity:"standard",
     imageStylePreset:"reference-video",
+    styleReferences:[],
     novelImport:{
       novelTitle:"",
       locked:false,
