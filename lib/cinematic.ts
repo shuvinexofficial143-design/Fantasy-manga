@@ -38,6 +38,7 @@ export function buildCinematicPrompt({scene,project,previousScene}:{scene:Cinema
   const characterBible=activeCharacters.length?activeCharacters.map(({character,state})=>[`${character.name} (${character.role})`,`fixed identity: ${character.appearance||"use reference identity"}`,`established outfit: ${character.outfit||"preserve reference outfit unless this story beat changes it"}`,character.continuityNotes?`locked character facts: ${character.continuityNotes}`:"",`current state: ${stateText(state,character)}`].filter(Boolean).join("; ")).join("\n"):"No recurring character is required unless the story moment explicitly introduces one.";
   const previousText=previousScene?summarizeSceneContinuity(previousScene,project):"This is the first frame of the sequence; establish the canonical screen geography clearly.";
   const lockedStyle=projectImageStyle(project);
+  const styleReferenceCount=(project.styleReferences||[]).length+(project.styleReferenceImage?1:0);
   const styleBoundary=project.imageStylePreset==="reference-video"
     ?`REFERENCE-VIDEO STYLE BOUNDARY: Do not turn this into a photograph or live-action still. Do not use plastic 3D/CGI, western-cartoon proportions, chibi, flat TV-anime screenshot rendering or comic/manga panel layout. Avoid: ${REFERENCE_VIDEO_NEGATIVE_STYLE}.`
     :"";
@@ -45,6 +46,7 @@ export function buildCinematicPrompt({scene,project,previousScene}:{scene:Cinema
     `Generate exactly ONE complete ${project.aspectRatio} cinematic full-frame image, not a page and not a collage.`,
     `MASTER ART-DIRECTION LOCK: ${lockedStyle}. This is a hard project constraint, not a suggestion. Keep the same facial-design language, painterly/rendering language, hair and fabric treatment, environment detail, color science, contrast, atmosphere and production quality across every frame.`,
     styleBoundary,
+    styleReferenceCount?`UPLOADED STYLE REFERENCE PACK: ${Math.min(styleReferenceCount,4)} project reference image(s) are attached. Match their shared art direction, facial-rendering language, line/paint treatment, lighting, palette, atmosphere, costume/material richness and cinematic finish. Do NOT copy their specific people, objects, poses, framing or scene content.`:"",
     project.worldNotes?`WORLD BIBLE: ${project.worldNotes}`:"",
     `CURRENT STORY MOMENT: ${scene.sourceText}`,
     `CURRENT LOCATION: ${location?`${location.name} — ${location.description}; lighting=${location.lighting}; locked facts=${location.continuityNotes||"preserve architecture and landmark placement"}`:"Continue the previous location unless the story clearly changes it."}`,
