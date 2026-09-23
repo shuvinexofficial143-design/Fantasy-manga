@@ -193,8 +193,8 @@ export async function synthesizeGoogleTts(options:SynthesizeOptions){
       voice:{languageCode:options.languageCode,name:options.voiceName},
       audioConfig:{
         audioEncoding:"MP3",
-        speakingRate:Math.max(0.25,Math.min(4,options.speakingRate)),
-        pitch:Math.max(-20,Math.min(20,options.pitch))
+        speakingRate:Math.max(0.25,Math.min(2,options.speakingRate)),
+        ...(!options.voiceName.includes("Chirp3-HD")?{pitch:Math.max(-20,Math.min(20,options.pitch))}:{})
       }
     })
   });
