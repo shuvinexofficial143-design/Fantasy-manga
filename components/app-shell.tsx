@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import {usePathname,useRouter} from "next/navigation";
-import {BookOpenText,Boxes,FilePlus2,FileText,Home,ImageIcon,MapPinned,ScanSearch,Settings,Sparkles,Users} from "lucide-react";
+import {BookOpenText,Boxes,FilePlus2,FileText,Headphones,Home,ImageIcon,MapPinned,ScanSearch,Settings,Sparkles,Users} from "lucide-react";
 import {createDraftChapter,nextChapterNumber} from "@/lib/chapters";
 import {useProject} from "./project-provider";
 
@@ -16,7 +16,8 @@ const workflowNav=[
   ["/novel","1. Story Input",FileText],
   ["/visuals","2. Visual Prompts",ScanSearch],
   ["/explainer","3. Explainer",BookOpenText],
-  ["/images","4. Images",ImageIcon]
+  ["/images","4. Images",ImageIcon],
+  ["/voice","5. Voice / TTS",Headphones]
 ] as const;
 
 const libraryNav=[
