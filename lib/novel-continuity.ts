@@ -11,43 +11,52 @@ export function findNamed<T extends {name:string}>(items:T[],name:string):T|unde
 // A generated scene may contain several people; describe it as an ensemble anchor,
 // never as an isolated character master. Keep the immediate previous frame in view.
 export function novelReferences(scene:CinematicImage,project:Project,previous?:CinematicImage){
-  const refs:Array<{image:string;label:string}>=[];
-  const add=(image:string|undefined,label:string)=>{
-    if(image&&!refs.some((item)=>item.image===image)&&refs.length<4)refs.push({image,label});
+  const styleRefs:Array<{image:string;label:string}>=[];
+  const continuityRefs:Array<{image:string;label:string}>=[];
+  const addStyle=(image:string|undefined,label:string)=>{
+    if(image&&!styleRefs.some((item)=>item.image===image)&&styleRefs.length<4)styleRefs.push({image,label});
   };
+  const addContinuity=(image:string|undefined,label:string)=>{
+    if(image
+      &&!styleRefs.some((item)=>item.image===image)
+      &&!continuityRefs.some((item)=>item.image===image)
+      &&continuityRefs.length<4)continuityRefs.push({image,label});
+  };
+
+  for(const [index,reference] of (project.styleReferences||[]).slice(0,4).entries()){
+    addStyle(reference.dataUrl,`Project style reference ${index+1} — visual language only; match rendering, lighting, palette, material detail and cinematic finish; do not copy its subjects or composition`);
+  }
+  if(!styleRefs.length)addStyle(project.styleReferenceImage,"Legacy master style reference — style only, not scene content");
+
   const earlier=project.images.filter((item)=>item.sceneNumber<scene.sceneNumber&&item.image).sort((a,b)=>a.sceneNumber-b.sceneNumber);
   const location=project.locations.find((item)=>item.id===scene.locationId);
   const locationAnchor=earlier.find((item)=>item.locationId===scene.locationId);
-  // Explicit master photos are the strongest source of identity and layout.
+
   for(const state of scene.characterStates){
     const character=project.characters.find((item)=>item.id===state.characterId);
-    add(character?.referenceImage,`Character master — ${character?.name}`);
+    addContinuity(character?.referenceImage,`Character master — ${character?.name}`);
   }
-  add(location?.referenceImage,`Location master — ${location?.name}`);
-  // The first successful appearance establishes a stable visual reference.
+  addContinuity(location?.referenceImage,`Location master — ${location?.name}`);
+
   for(const state of scene.characterStates){
     const character=project.characters.find((item)=>item.id===state.characterId);
     if(character?.referenceImage)continue;
     const anchor=earlier.find((item)=>item.characterStates.some((entry)=>entry.characterId===state.characterId));
-    add(anchor?.image,`Earlier scene ${anchor?.sceneNumber} containing ${character?.name}; preserve that person's face and outfit only`);
+    addContinuity(anchor?.image,`Earlier scene ${anchor?.sceneNumber} containing ${character?.name}; preserve that person's face and outfit only`);
   }
-  if(!location?.referenceImage&&location)add(locationAnchor?.image,`Earlier scene ${locationAnchor?.sceneNumber} at ${location.name}; preserve landmarks and layout`);
-  // Recent frames preserve the sequence of gestures, entrances and changes in setting.
-  // Keep master images first, then prefer the most recent frames over older scene anchors.
+
+  if(!location?.referenceImage&&location)addContinuity(locationAnchor?.image,`Earlier scene ${locationAnchor?.sceneNumber} at ${location.name}; preserve landmarks and layout`);
+
   const recent=earlier.filter((item)=>item.sceneNumber>=scene.sceneNumber-4).slice(-4).reverse();
   if(scene.usePreviousImage){
     for(const frame of recent){
-      if(refs.some((item)=>item.image===frame.image))continue;
-      if(refs.length===4){
-        const replace=refs.findLastIndex((item)=>item.label.startsWith("Earlier scene"));
-        if(replace<0)break;
-        refs.splice(replace,1);
-      }
-      add(frame.image,`Recent scene ${frame.sceneNumber}; preserve its characters, setting, pose and props in sequence`);
+      if(continuityRefs.length>=4)break;
+      addContinuity(frame.image,`Recent scene ${frame.sceneNumber}; preserve its characters, setting, pose and props in sequence`);
     }
   }
-  add(project.styleReferenceImage,"Master style reference");
-  return {images:refs.map((item)=>item.image),labels:refs.map((item)=>item.label)};
+
+  const refs=[...styleRefs,...continuityRefs].slice(0,8);
+  return {images:refs.map((item)=>item.image),labels:refs.map((item)=>item.label),styleCount:styleRefs.length,continuityCount:continuityRefs.length};
 }
 
 export function namedSceneCharacters(states:Array<{name:string;position:string;action:string;direction:string;expression:string;stateNotes:string}>,characters:Character[]):SceneCharacterState[]{
