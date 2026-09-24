@@ -38,12 +38,38 @@ function mimeType(){
   return options.find((value)=>typeof MediaRecorder!=="undefined"&&MediaRecorder.isTypeSupported(value))||"";
 }
 
-function drawCover(ctx:CanvasRenderingContext2D,image:HTMLImageElement,width:number,height:number){
-  ctx.fillStyle="#000";
-  ctx.fillRect(0,0,width,height);
-  const scale=Math.max(width/image.naturalWidth,height/image.naturalHeight);
-  const w=image.naturalWidth*scale,h=image.naturalHeight*scale;
-  ctx.drawImage(image,(width-w)/2,(height-h)/2,w,h);
+type MotionKind="push-in"|"pull-out"|"pan-left"|"pan-right"|"drift-up"|"impact";
+
+function hashScene(value:string){
+  let hash=2166136261;
+  for(let i=0;i<value.length;i+=1){hash^=value.charCodeAt(i);hash=Math.imul(hash,16777619)}
+  return hash>>>0;
+}
+
+function motionFor(sceneId:string,index:number,duration:number):MotionKind{
+  const choices:MotionKind[]=["push-in","pan-left","push-in","pan-right","pull-out","drift-up"];
+  if(duration<=3.2)return "impact";
+  return choices[(hashScene(sceneId)+index)%choices.length];
+}
+
+function easeInOut(value:number){return value<.5?2*value*value:1-Math.pow(-2*value+2,2)/2}
+
+function drawCinematic(ctx:CanvasRenderingContext2D,image:HTMLImageElement,width:number,height:number,progress:number,motion:MotionKind){
+  ctx.fillStyle="#000";ctx.fillRect(0,0,width,height);
+  const p=easeInOut(Math.max(0,Math.min(1,progress)));
+  let zoom=1.025,xShift=0,yShift=0;
+  if(motion==="push-in")zoom=1.02+.09*p;
+  else if(motion==="pull-out")zoom=1.11-.08*p;
+  else if(motion==="pan-left"){zoom=1.08;xShift=.035-p*.07}
+  else if(motion==="pan-right"){zoom=1.08;xShift=-.035+p*.07}
+  else if(motion==="drift-up"){zoom=1.065;yShift=.025-p*.05}
+  else if(motion==="impact")zoom=1.04+.08*Math.min(1,p*2);
+  const base=Math.max(width/image.naturalWidth,height/image.naturalHeight);
+  const scale=base*zoom,w=image.naturalWidth*scale,h=image.naturalHeight*scale;
+  const maxX=Math.max(0,(w-width)/2),maxY=Math.max(0,(h-height)/2);
+  const x=(width-w)/2+maxX*xShift*2;
+  const y=(height-h)/2+maxY*yShift*2;
+  ctx.drawImage(image,x,y,w,h);
 }
 
 export async function exportSyncedWebm(
@@ -98,14 +124,16 @@ export async function exportSyncedWebm(
   });
 
   recorder.start(1000);
-  drawCover(ctx,images[0],width,height);
+  drawCinematic(ctx,images[0],width,height,0,motionFor(segments[0].sceneId,0,segments[0].duration));
 
   await new Promise<void>((resolve)=>{
     const tick=()=>{
       const now=Math.max(0,audioContext.currentTime-startAt);
       let index=starts.findIndex((start,i)=>now>=start&&now<(starts[i+1]??total));
       if(index<0)index=segments.length-1;
-      drawCover(ctx,images[index],width,height);
+      const localStart=starts[index],localDuration=Math.max(.1,segments[index].duration);
+      const localProgress=Math.max(0,Math.min(1,(now-localStart)/localDuration));
+      drawCinematic(ctx,images[index],width,height,localProgress,motionFor(segments[index].sceneId,index,localDuration));
       options.onProgress?.(Math.min(1,now/total));
       if(now>=total+0.05){resolve();return}
       requestAnimationFrame(tick);
