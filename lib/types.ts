@@ -123,6 +123,10 @@ export type Project={
   continuityMode:"strict"|"balanced";
   visualDensity:VisualDensity;
   imageStylePreset:ImageStylePreset;
+  imageProvider:"gemini"|"xkiro";
+  imageModel:string;
+  analysisProvider:"vertex"|"xkiro";
+  analysisModel:string;
   styleReferenceImage?:string;
   styleReferences:ReferenceImage[];
   novelImport?:NovelImportState;
