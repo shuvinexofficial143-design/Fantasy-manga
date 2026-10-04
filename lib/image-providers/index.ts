@@ -27,7 +27,7 @@ export async function generateImage(input:ImageGenerationInput){
   return compact({
     imageDataUrl:result.imageDataUrl,
     sourceUrl:"sourceUrl" in result?result.sourceUrl:undefined,
-    model:input.model||result.model||"unknown",
+    model:input.model||"unknown",
     provider,
     seed:input.seed,
     referenceCount:provider==="gemini"?input.referenceImages?.length||0:0,
