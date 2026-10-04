@@ -100,6 +100,7 @@ type GenerateVertexTextOptions={
   temperature?:number;
   seed?:number;
   maxOutputTokens?:number;
+  model?:string;
 };
 
 export async function generateVertexText(prompt:string,options:GenerateVertexTextOptions={}){
@@ -115,7 +116,7 @@ export async function generateVertexText(prompt:string,options:GenerateVertexTex
   }
 
   const region=location();
-  const model=process.env.GEMINI_STORY_MODEL?.trim()||"gemini-3.1-pro-preview";
+  const model=options.model?.trim()||process.env.GEMINI_STORY_MODEL?.trim()||"gemini-3.1-pro-preview";
   const timeoutMs=Math.max(10000,Number(process.env.VERTEX_STORY_TIMEOUT_MS||120000));
   const host=region==="global"?"aiplatform.googleapis.com":`${region}-aiplatform.googleapis.com`;
   const url=new URL(
