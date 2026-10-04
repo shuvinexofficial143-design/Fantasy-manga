@@ -1,5 +1,5 @@
 import {NextResponse} from "next/server";
-import {generateVertexText} from "@/lib/vertex-text";
+import {generateStoryText} from "@/lib/vertex-text";
 import {visualCoverageTarget} from "@/lib/chapters";
 import type {Character,Location,VisualDensity} from "@/lib/types";
 
@@ -15,6 +15,8 @@ type Body={
   mode?:unknown;
   segmentIndex?:unknown;
   segmentCount?:unknown;
+  analysisProvider?:unknown;
+  analysisModel?:unknown;
 };
 
 function stringValue(value:unknown,fallback=""){return typeof value==="string"?value.trim():fallback}
@@ -72,6 +74,8 @@ export async function POST(req:Request){
     const mode=stringValue(body.mode);
     const segmentIndex=Math.max(0,Math.trunc(Number(body.segmentIndex)||0));
     const segmentCount=Math.max(1,Math.trunc(Number(body.segmentCount)||1));
+    const analysisProvider=body.analysisProvider==="xkiro"?"xkiro":"vertex";
+    const analysisModel=stringValue(body.analysisModel,analysisProvider==="xkiro"?"sensenova/sensenova-6.8-flash-lite":"gemini-3.1-pro-preview");
     const requestedVisualStyle=stringValue(body.visualStyle,"Cinematic realistic storytelling, premium movie-still composition, natural human faces, realistic skin and materials, physically believable lighting, natural color grading, rich environment detail, 16:9 framing");
 
     const parts=mode==="chunk"?[chapterText]:chapterParts(chapterText,densityConfig.partWords);
@@ -153,7 +157,7 @@ export async function POST(req:Request){
       "Rules: explainer must be copy-ready continuous narration for this segment and must contain no timestamps or voice/TTS instructions. Each scene must represent exactly ONE frozen micro visual beat suitable for one full cinematic image; sourceText should be a concise paraphrase of only that beat, not a long quote or a multi-step summary. imagePrompt must be a complete standalone image-generation prompt that specifies the established character identity, exact current action/pose, exact current expression, location, shot/composition, lighting, mood and continuity details needed for consistency. When consecutive beats remain in the same place, keep architecture, light direction, outfit, props, injuries and screen geography locked while changing only the story-authorized pose/action/expression/camera emphasis. Avoid random text, captions, watermarks, logos, collages or panel layouts. Preserve continuity from the previous chapter and previous segment; do not invent events. Return scenes in strict chapter order. Every scene should connect causally and visually to its predecessor. Carry clothing, location layout, time of day, props, injuries, screen direction and character position from the prior scene until the story explicitly changes them."
     ].filter(Boolean).join("\n");
 
-    const raw=await generateVertexText(prompt,{temperature:0,seed:analysisSeed,maxOutputTokens:32768});
+    const raw=await generateStoryText(prompt,{provider:analysisProvider,model:analysisModel,temperature:0,seed:analysisSeed,maxOutputTokens:32768});
     let parsed=JSON.parse(cleanJson(raw)) as Record<string,unknown>;
     let sceneCount=arrayValue(parsed.scenes).length;
     if(sceneCount<coverage.min||sceneCount>coverage.max){
@@ -167,7 +171,7 @@ export async function POST(req:Request){
         "CHAPTER SEGMENT:",partText,
         "DRAFT JSON:",JSON.stringify(parsed)
       ].join("\n\n");
-      const refinedRaw=await generateVertexText(refinementPrompt,{temperature:0,seed:Math.min(2147483647,analysisSeed+1),maxOutputTokens:32768});
+      const refinedRaw=await generateStoryText(refinementPrompt,{provider:analysisProvider,model:analysisModel,temperature:0,seed:Math.min(2147483647,analysisSeed+1),maxOutputTokens:32768});
       const refined=JSON.parse(cleanJson(refinedRaw)) as Record<string,unknown>;
       if(arrayValue(refined.scenes).length)parsed=refined;
       sceneCount=arrayValue(parsed.scenes).length;
@@ -193,7 +197,7 @@ export async function POST(req:Request){
           "DRAFT NARRATION:",
           draftExplainer
         ].filter(Boolean).join("\n\n");
-        const polishedRaw=await generateVertexText(polishPrompt);
+        const polishedRaw=await generateStoryText(polishPrompt,{provider:analysisProvider,model:analysisModel});
         const polished=objectValue(JSON.parse(cleanJson(polishedRaw)));
         explainer=stringValue(polished.explainer,draftExplainer);
       }catch(polishError){
@@ -251,7 +255,7 @@ export async function POST(req:Request){
     }).filter((scene)=>scene.sourceText);
 
     if(!scenes.length)throw new Error("Story analyzer returned no usable scenes.");
-    return NextResponse.json({summary,explainer,visualStyle,characters,locations,scenes,model:process.env.GEMINI_STORY_MODEL?.trim()||"gemini-3.1-pro-preview"});
+    return NextResponse.json({summary,explainer,visualStyle,characters,locations,scenes,provider:analysisProvider,model:analysisModel});
   }catch(error){
     console.error("Novel chapter analysis failed",error);
     return NextResponse.json({error:error instanceof Error?error.message:"Chapter analysis failed"},{status:502});
