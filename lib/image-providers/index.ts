@@ -1,5 +1,6 @@
 import sharp from "sharp";
 import {generateWithGemini,geminiConfigured} from "./gemini";
+import {generateXkiroImage,xkiroConfigured} from "@/lib/xkiro";
 import type {ImageGenerationInput,ImageGenerationResult} from "./types";
 
 const MAX_BYTES=220_000;
@@ -9,29 +10,27 @@ async function compact(result:ImageGenerationResult):Promise<ImageGenerationResu
   if(!match)return result;
   const bytes=Buffer.from(match[2],"base64");
   if(bytes.length<=MAX_BYTES)return result;
-
-  let output=await sharp(bytes)
-    .rotate()
-    .resize({width:1024,height:1024,fit:"inside",withoutEnlargement:true})
-    .webp({quality:70,effort:4})
-    .toBuffer();
-
-  if(output.length>MAX_BYTES){
-    output=await sharp(output)
-      .resize({width:800,height:800,fit:"inside",withoutEnlargement:true})
-      .webp({quality:45,effort:4})
-      .toBuffer();
-  }
-
+  let output=await sharp(bytes).rotate().resize({width:1024,height:1024,fit:"inside",withoutEnlargement:true}).webp({quality:70,effort:4}).toBuffer();
+  if(output.length>MAX_BYTES)output=await sharp(output).resize({width:800,height:800,fit:"inside",withoutEnlargement:true}).webp({quality:45,effort:4}).toBuffer();
   return {...result,imageDataUrl:`data:image/webp;base64,${output.toString("base64")}`};
 }
 
-export async function generateImage(input:ImageGenerationInput){
-  if(!geminiConfigured()){
-    throw new Error(
-      "Google Cloud Vertex AI image generation is not configured. Add VERTEX_AI_PROJECT_ID and either VERTEX_AI_API_KEY or VERTEX_AI_SERVICE_ACCOUNT_JSON in Vercel Environment Variables."
-    );
-  }
+export function imageProviderConfigured(provider:"gemini"|"xkiro"){
+  return provider==="xkiro"?xkiroConfigured():geminiConfigured();
+}
 
-  return compact(await generateWithGemini(input));
+export async function generateImage(input:ImageGenerationInput){
+  const provider=input.provider||"gemini";
+  const result=provider==="xkiro"
+    ?await generateXkiroImage(input.prompt,input.model||"sensenova/sensenova-u1.5-lite",input.width,input.height)
+    :await generateWithGemini(input);
+  return compact({
+    imageDataUrl:result.imageDataUrl,
+    sourceUrl:"sourceUrl" in result?result.sourceUrl:undefined,
+    model:input.model||result.model||"unknown",
+    provider,
+    seed:input.seed,
+    referenceCount:provider==="gemini"?input.referenceImages?.length||0:0,
+    warning:provider==="xkiro"&&input.referenceImages?.length?"xKiro image generation currently uses the compiled prompt; source-image references are not sent to the generation endpoint.":undefined
+  });
 }
