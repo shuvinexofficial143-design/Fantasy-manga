@@ -101,6 +101,18 @@ export default function NovelImportPage(){
   useEffect(()=>{void fetch("/api/xkiro/models?modality=chat").then((response)=>response.json()).then((data)=>{if(Array.isArray(data.models))setFreeStoryModels(data.models)}).catch(()=>{});},[]);
   const analysisProvider=project.analysisProvider||"vertex";
   const analysisModel=project.analysisModel||"gemini-3.1-pro-preview";
+  const vertexStoryModels=[
+    {id:"gemini-3.7-flash",label:"Gemini 3.7 Flash"},
+    {id:"gemini-3.6-flash",label:"Gemini 3.6 Flash"},
+    {id:"gemini-3.5-flash",label:"Gemini 3.5 Flash"},
+    {id:"gemini-3.5-flash-lite",label:"Gemini 3.5 Flash-Lite"},
+    {id:"gemini-3.1-pro-preview",label:"Gemini 3.1 Pro Preview"},
+    {id:"gemini-3.1-flash-lite",label:"Gemini 3.1 Flash-Lite"},
+    {id:"gemini-3-flash-preview",label:"Gemini 3 Flash Preview"},
+    {id:"gemini-2.5-pro",label:"Gemini 2.5 Pro"},
+    {id:"gemini-2.5-flash",label:"Gemini 2.5 Flash"},
+    {id:"gemini-2.5-flash-lite",label:"Gemini 2.5 Flash-Lite"}
+  ];
   const setAnalysisProvider=(provider:"vertex"|"xkiro")=>updateAnalysis(provider,provider==="vertex"?"gemini-3.1-pro-preview":(freeStoryModels[0]?.id||"sensenova/sensenova-6.8-flash-lite"));
   const updateAnalysis=(provider:"vertex"|"xkiro",model:string)=>setState((current)=>({...current,projects:current.projects.map((item)=>item.id===project.id?{...item,analysisProvider:provider,analysisModel:model,updatedAt:new Date().toISOString()}:item)}));
 
@@ -352,11 +364,15 @@ export default function NovelImportPage(){
         <div className="text-xs font-black uppercase tracking-wider text-slate-500">Story Analysis Model</div>
         <div className="mt-2 flex flex-col gap-2 sm:flex-row">
           <select value={analysisProvider+"|"+analysisModel} disabled={!!busy} onChange={(e)=>{const [provider,...rest]=e.target.value.split("|");updateAnalysis(provider as "vertex"|"xkiro",rest.join("|"))}} className="flex-1 rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm font-bold">
-            <option value="vertex|gemini-3.1-pro-preview">Google Cloud · Gemini 3.1 Pro Preview</option>
-            {freeStoryModels.map((model)=><option key={model.id} value={"xkiro|"+model.id}>xKiro · {model.display_name||model.id}</option>)}
+            <optgroup label="Google Cloud · Vertex AI">
+              {vertexStoryModels.map((model)=><option key={model.id} value={"vertex|"+model.id}>{model.label}</option>)}
+            </optgroup>
+            <optgroup label="xKiro · Free">
+              {freeStoryModels.map((model)=><option key={model.id} value={"xkiro|"+model.id}>xKiro · {model.display_name||model.id}</option>)}
+            </optgroup>
           </select>
         </div>
-        <div className="mt-2 text-xs leading-5 text-slate-500">{analysisProvider==="xkiro"?"xKiro free chat catalog is loaded live from its public model list. The selected model is used for analysis, scene planning and final explainer polish.":"Existing Google Cloud story analysis remains available unchanged."} {freeStoryModels.length?freeStoryModels.length+" free xKiro chat models available.":""}</div>
+        <div className="mt-2 text-xs leading-5 text-slate-500">{analysisProvider==="xkiro"?"xKiro free chat catalog is loaded live from its public model list. The selected model is used for analysis, scene planning and final explainer polish.":"Vertex AI Gemini text models are billed through your configured Google Cloud project/credentials."} {freeStoryModels.length?freeStoryModels.length+" free xKiro chat models available.":""}</div>
       </div>
 
       <div className="mt-5 grid gap-4 md:grid-cols-2">
