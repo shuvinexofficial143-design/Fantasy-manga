@@ -1,11 +1,13 @@
 import {NextResponse} from "next/server";
-import {generateVertexText} from "@/lib/vertex-text";
+import {generateStoryText} from "@/lib/vertex-text";
 
 type Body={
   chapterNumber?:unknown;
   draftExplainers?:unknown;
   partSummaries?:unknown;
   previousSummary?:unknown;
+  analysisProvider?:unknown;
+  analysisModel?:unknown;
 };
 
 function stringValue(value:unknown,fallback=""){return typeof value==="string"?value.trim():fallback}
@@ -21,6 +23,8 @@ export async function POST(req:Request){
     const draftExplainers=stringArray(body.draftExplainers);
     const partSummaries=stringArray(body.partSummaries);
     const previousSummary=stringValue(body.previousSummary);
+    const analysisProvider=body.analysisProvider==="xkiro"?"xkiro":"vertex";
+    const analysisModel=stringValue(body.analysisModel,analysisProvider==="xkiro"?"sensenova/sensenova-6.8-flash-lite":"gemini-3.1-pro-preview");
 
     if(!draftExplainers.length)return NextResponse.json({error:"No explainer parts to polish."},{status:400});
 
@@ -48,7 +52,7 @@ export async function POST(req:Request){
       JSON.stringify({explainer:"",summary:""})
     ].filter(Boolean).join("\n\n");
 
-    const raw=await generateVertexText(prompt);
+    const raw=await generateStoryText(prompt,{provider:analysisProvider,model:analysisModel});
     const parsed=JSON.parse(cleanJson(raw)) as {explainer?:unknown;summary?:unknown};
     const explainer=stringValue(parsed.explainer,draftExplainers.join("\n\n"));
     const summary=stringValue(parsed.summary,partSummaries.join(" "));
