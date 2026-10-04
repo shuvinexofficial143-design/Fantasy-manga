@@ -15,6 +15,10 @@ export function createProject(name="My Cinematic Project"):Project{
     continuityMode:"strict",
     visualDensity:"standard",
     imageStylePreset:"reference-video",
+    imageProvider:"gemini",
+    imageModel:"gemini-3.1-flash-image",
+    analysisProvider:"vertex",
+    analysisModel:"gemini-3.1-pro-preview",
     styleReferences:[],
     novelImport:{
       novelTitle:"",
