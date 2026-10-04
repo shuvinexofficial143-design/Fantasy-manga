@@ -1,4 +1,5 @@
 import {createSign} from "node:crypto";
+import {generateXkiroText} from "@/lib/xkiro";
 
 const GOOGLE_SCOPE="https://www.googleapis.com/auth/cloud-platform";
 const GOOGLE_TOKEN_URL="https://oauth2.googleapis.com/token";
@@ -160,4 +161,12 @@ export async function generateVertexText(prompt:string,options:GenerateVertexTex
 
   if(!output)throw new Error("Vertex story planner returned no text.");
   return output;
+}
+
+
+export async function generateStoryText(prompt:string,options:GenerateVertexTextOptions & {provider?:"vertex"|"xkiro";model?:string}={}){
+  if(options.provider==="xkiro"){
+    return generateXkiroText(prompt,options.model||"sensenova/sensenova-6.8-flash-lite",{seed:options.seed,maxTokens:options.maxOutputTokens});
+  }
+  return generateVertexText(prompt,options);
 }
