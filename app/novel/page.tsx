@@ -1,6 +1,6 @@
 "use client";
 
-import {useMemo,useState} from "react";
+import {useEffect,useMemo,useState} from "react";
 import Link from "next/link";
 import {AlertTriangle,BookOpenCheck,FileText,Loader2,Sparkles} from "lucide-react";
 import {chapterSourceKey,splitChapterForDensity} from "@/lib/chapters";
@@ -97,6 +97,12 @@ export default function NovelImportPage(){
   const [progress,setProgress]=useState("");
   const [notice,setNotice]=useState("");
   const [error,setError]=useState("");
+  const [freeStoryModels,setFreeStoryModels]=useState<Array<{id:string;display_name?:string;context_length?:number;capabilities?:Record<string,unknown>}>>([]);
+  useEffect(()=>{void fetch("/api/xkiro/models?modality=chat").then((response)=>response.json()).then((data)=>{if(Array.isArray(data.models))setFreeStoryModels(data.models)}).catch(()=>{});},[]);
+  const analysisProvider=project.analysisProvider||"vertex";
+  const analysisModel=project.analysisModel||"gemini-3.1-pro-preview";
+  const setAnalysisProvider=(provider:"vertex"|"xkiro")=>updateAnalysis(provider,provider==="vertex"?"gemini-3.1-pro-preview":(freeStoryModels[0]?.id||"sensenova/sensenova-6.8-flash-lite"));
+  const updateAnalysis=(provider:"vertex"|"xkiro",model:string)=>setState((current)=>({...current,projects:current.projects.map((item)=>item.id===project.id?{...item,analysisProvider:provider,analysisModel:model,updatedAt:new Date().toISOString()}:item)}));
 
   const selectedChapter=useMemo(()=>novel.chapters.find((item)=>item.number===chapterNumber),[novel.chapters,chapterNumber]);
   const effectiveChapterText=(manualText.trim()||selectedChapter?.sourceText.trim()||"");
@@ -197,7 +203,9 @@ export default function NovelImportPage(){
           visualStyle:projectImageStyle(working),
           visualDensity:density,
           previousSummary,
-          previousSegmentSummary:partSummaries.at(-1)||""
+          previousSegmentSummary:partSummaries.at(-1)||"",
+          analysisProvider,
+          analysisModel
         });
         if(!analysis.scenes?.length)throw new Error(analysis.error||"Part "+(partIndex+1)+" से visual beats नहीं मिले।");
 
@@ -272,7 +280,9 @@ export default function NovelImportPage(){
           chapterNumber:number,
           draftExplainers:partExplainers,
           partSummaries,
-          previousSummary
+          previousSummary,
+          analysisProvider,
+          analysisModel
         });
         if(polished.explainer)finalExplainer=polished.explainer;
         if(polished.summary)finalSummary=polished.summary;
@@ -336,6 +346,17 @@ export default function NovelImportPage(){
         <div className="inline-flex items-center gap-2 rounded-full bg-violet-50 px-3 py-1.5 text-xs font-bold text-violet-700">
           <FileText size={14}/> CHAPTER {chapterNumber}
         </div>
+      </div>
+
+      <div className="mt-5 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+        <div className="text-xs font-black uppercase tracking-wider text-slate-500">Story Analysis Model</div>
+        <div className="mt-2 flex flex-col gap-2 sm:flex-row">
+          <select value={analysisProvider+"|"+analysisModel} disabled={!!busy} onChange={(e)=>{const [provider,...rest]=e.target.value.split("|");updateAnalysis(provider as "vertex"|"xkiro",rest.join("|"))}} className="flex-1 rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm font-bold">
+            <option value="vertex|gemini-3.1-pro-preview">Google Cloud · Gemini 3.1 Pro Preview</option>
+            {freeStoryModels.map((model)=><option key={model.id} value={"xkiro|"+model.id}>xKiro · {model.display_name||model.id}</option>)}
+          </select>
+        </div>
+        <div className="mt-2 text-xs leading-5 text-slate-500">{analysisProvider==="xkiro"?"xKiro free chat catalog is loaded live from its public model list. The selected model is used for analysis, scene planning and final explainer polish.":"Existing Google Cloud story analysis remains available unchanged."} {freeStoryModels.length?freeStoryModels.length+" free xKiro chat models available.":""}</div>
       </div>
 
       <div className="mt-5 grid gap-4 md:grid-cols-2">
