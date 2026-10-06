@@ -3,6 +3,7 @@
 import {createContext,useContext,useEffect,useRef,useState} from "react";
 import {createProject} from "@/lib/default-project";
 import type {NovelImportState,Project,StudioState} from "@/lib/types";
+import {BackgroundChapterPipeline} from "@/components/background-chapter-pipeline";
 
 const STORAGE_KEY="fantasy-cinematic-studio-v3";
 const DB_NAME="fantasy-cinematic-studio";
@@ -136,7 +137,7 @@ export function ProjectProvider({children}:{children:React.ReactNode}){
   const updateProject=(fn:(project:Project)=>Project)=>setState((current)=>({...current,projects:current.projects.map((item)=>item.id===project.id?fn(item):item)}));
   const createNewProject=()=>{const next=createProject(`Cinematic Project ${state.projects.length+1}`);setState((current)=>({...current,activeProjectId:next.id,projects:[...current.projects,next]}))};
 
-  return <ProjectContext.Provider value={{state,project,setState,updateProject,createNewProject,persistenceError}}>{children}</ProjectContext.Provider>;
+  return <ProjectContext.Provider value={{state,project,setState,updateProject,createNewProject,persistenceError}}><BackgroundChapterPipeline/>{children}</ProjectContext.Provider>;
 }
 
 export function useProject(){
