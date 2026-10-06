@@ -101,6 +101,7 @@ export function ProjectProvider({children}:{children:React.ReactNode}){
   const [hydrated,setHydrated]=useState(false);
   const [persistenceError,setPersistenceError]=useState("");
   const saveQueue=useRef<Promise<void>>(Promise.resolve());
+  const saveTimer=useRef<ReturnType<typeof setTimeout>|null>(null);
 
   useEffect(()=>{let mounted=true;void (async()=>{
     try{
@@ -120,8 +121,15 @@ export function ProjectProvider({children}:{children:React.ReactNode}){
 
   useEffect(()=>{
     if(!hydrated)return;
-    saveQueue.current=saveQueue.current.catch(()=>{}).then(()=>saveState(state));
-    void saveQueue.current.then(()=>setPersistenceError("")).catch(()=>setPersistenceError("Project save नहीं हुआ। Browser storage जाँचें और images download करके रखें।"));
+    // Image generation can update a large project several times in a few seconds.
+    // Coalesce those snapshots so IndexedDB does not serialize the full project for
+    // every progress update while still persisting shortly after activity settles.
+    if(saveTimer.current)clearTimeout(saveTimer.current);
+    saveTimer.current=setTimeout(()=>{
+      saveQueue.current=saveQueue.current.catch(()=>{}).then(()=>saveState(state));
+      void saveQueue.current.then(()=>setPersistenceError("")).catch(()=>setPersistenceError("Project save नहीं हुआ। Browser storage जाँचें और images download करके रखें।"));
+    },350);
+    return()=>{if(saveTimer.current)clearTimeout(saveTimer.current)};
   },[state,hydrated]);
 
   const project=state.projects.find((item)=>item.id===state.activeProjectId)||state.projects[0]||seedProject;
