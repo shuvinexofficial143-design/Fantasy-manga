@@ -22,7 +22,7 @@ export function imageProviderConfigured(provider:"gemini"|"xkiro"){
 export async function generateImage(input:ImageGenerationInput){
   const provider=input.provider||"gemini";
   const result=provider==="xkiro"
-    ?await generateXkiroImage(input.prompt,input.model||"sensenova/sensenova-u1.5-lite",input.width,input.height)
+    ?await generateXkiroImage(input.prompt,input.model||"sensenova/sensenova-u1.5-lite",input.width,input.height,input.referenceImages?.[0])
     :await generateWithGemini(input);
   return compact({
     imageDataUrl:result.imageDataUrl,
@@ -30,7 +30,7 @@ export async function generateImage(input:ImageGenerationInput){
     model:input.model||"unknown",
     provider,
     seed:input.seed,
-    referenceCount:provider==="gemini"?input.referenceImages?.length||0:0,
-    warning:provider==="xkiro"&&input.referenceImages?.length?"xKiro image generation currently uses the compiled prompt; source-image references are not sent to the generation endpoint.":undefined
+    referenceCount:provider==="gemini"?input.referenceImages?.length||0:(input.model==="openai/gpt-image-2.5"&&input.referenceImages?.[0]?1:0),
+    warning:provider==="xkiro"&&input.referenceImages?.length&&input.model!=="openai/gpt-image-2.5"?"SenseNova is text-to-image only; the compact prompt carries the project style/continuity rules, but source-image references are not supported by that model.":undefined
   });
 }
