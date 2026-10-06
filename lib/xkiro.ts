@@ -75,15 +75,29 @@ async function pollImageJob(jobId:string){
   throw new Error("xKiro image generation timed out after 5 minutes.");
 }
 
-export async function generateXkiroImage(prompt:string,model:string,width:number,height:number){
+function dataUrlFile(dataUrl:string){
+  const match=dataUrl.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,([\s\S]+)$/);
+  if(!match)return null;
+  const ext=match[1].includes("png")?"png":match[1].includes("webp")?"webp":"jpg";
+  return {blob:new Blob([Buffer.from(match[2],"base64")],{type:match[1]}),name:"reference."+ext};
+}
+
+export async function generateXkiroImage(prompt:string,model:string,width:number,height:number,referenceImage?:string){
   const key=apiKey();
   if(!key)throw new Error("xKiro is not configured. Add XKIRO_API_KEY in Vercel Environment Variables.");
   if(model!=="openai/gpt-image-2.5"&&model!=="sensenova/sensenova-u1.5-lite")throw new Error("Unsupported xKiro image model.");
-  const response=await fetchWithRetry(`${BASE_URL}/images/generations`,{
-    method:"POST",
-    headers:{"Authorization":`Bearer ${key}`,"Content-Type":"application/json"},
-    body:JSON.stringify({model,prompt,n:1,size:imageSize(width,height)})
-  });
+  const source=referenceImage&&model==="openai/gpt-image-2.5"?dataUrlFile(referenceImage):null;
+  const response=source
+    ?await fetchWithRetry(`${BASE_URL}/images/edits`,{
+      method:"POST",
+      headers:{"Authorization":`Bearer ${key}`},
+      body:(()=>{const form=new FormData();form.append("image",source.blob,source.name);form.append("model",model);form.append("prompt",prompt);form.append("n","1");form.append("size",imageSize(width,height));return form})()
+    })
+    :await fetchWithRetry(`${BASE_URL}/images/generations`,{
+      method:"POST",
+      headers:{"Authorization":`Bearer ${key}`,"Content-Type":"application/json"},
+      body:JSON.stringify({model,prompt,n:1,size:imageSize(width,height)})
+    });
   const job=await response.json() as {id?:string;status?:string;error?:{message?:string}};
   if(!job.id)throw new Error(job.error?.message||"xKiro did not return an image job id.");
   const sourceUrl=job.status==="succeeded"?(job as unknown as {data?:Array<{url?:string}>}).data?.[0]?.url:await pollImageJob(job.id);
