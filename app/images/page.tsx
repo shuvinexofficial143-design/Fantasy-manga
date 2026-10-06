@@ -19,6 +19,15 @@ const IMAGE_MODELS=[
 ];
 
 const XKIRO_BATCH_SIZE=12;
+const XKIRO_PROMPT_MAX_CHARS=5200;
+
+function compactXkiroPrompt(fullPrompt:string){
+  const sections=fullPrompt.split(/\\n\\n+/).map((part)=>part.trim()).filter(Boolean);
+  const priority=["Generate exactly ONE","MASTER ART-DIRECTION LOCK","CURRENT STORY MOMENT","CURRENT LOCATION","CHARACTER BIBLE","CAMERA CONTINUITY","CURRENT CONTINUITY NOTES","COMPOSITION","ABSOLUTE LAYOUT RULE"];
+  const selected=priority.flatMap((prefix)=>sections.filter((section)=>section.startsWith(prefix)));
+  const compact=selected.join("\\n\\n");
+  return (compact||fullPrompt).slice(0,XKIRO_PROMPT_MAX_CHARS);
+}
 
 export default function ImagesPage(){
   const {project,setState,updateProject}=useProject();
@@ -41,7 +50,8 @@ export default function ImagesPage(){
     if(index<0)throw new Error("Scene not found.");
     const scene=ordered[index],previous=index>0?ordered[index-1]:undefined;
     if(working.continuityMode==="strict"&&scene.usePreviousImage&&previous&&!previous.image)throw new Error("Strict continuity के लिए पहले Scene "+previous.sceneNumber+" generate करें।");
-    const prompt=buildCinematicPrompt({scene,project:working,previousScene:previous});
+    const fullPrompt=buildCinematicPrompt({scene,project:working,previousScene:previous});
+    const prompt=working.imageProvider==="xkiro"?compactXkiroPrompt(fullPrompt):fullPrompt;
     const refs=novelReferences(scene,working,previous);
     const response=await fetch("/api/generate",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({
       prompt,negativePrompt:scene.negativePrompt,aspectRatio:working.aspectRatio,
@@ -120,7 +130,7 @@ export default function ImagesPage(){
       </div>
     </section>
 
-    {styleReferenceCount>0&&<div className="rounded-2xl border border-fuchsia-200 bg-fuchsia-50 p-4 text-sm font-semibold text-fuchsia-800">Style references remain active for the existing Gemini provider. xKiro generation uses the compiled cinematic prompt; its generation endpoint does not accept source-image references.</div>}
+    {styleReferenceCount>0&&<div className="rounded-2xl border border-fuchsia-200 bg-fuchsia-50 p-4 text-sm font-semibold text-fuchsia-800">Style reference active: Gemini can use the reference pack; xKiro GPT Image 2.5 uses the first project reference as its master source-image style anchor. SenseNova is text-to-image only, so it uses the compact style/continuity prompt without an image input.</div>}
     {progress&&<div className="rounded-2xl border border-violet-200 bg-violet-50 p-4 text-sm font-medium text-violet-800"><Loader2 className="mr-2 inline animate-spin" size={15}/>{progress}</div>}
     {notice&&<div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm font-medium text-emerald-800">{notice}</div>}
     {error&&<div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm font-medium text-red-700"><AlertTriangle className="mr-2 inline" size={15}/>{error}</div>}
