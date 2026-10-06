@@ -200,10 +200,18 @@ export default function NovelImportPage(){
         setNotice("Saved checkpoint मिला। Part "+(activePart+1)+" से resume किया जा रहा है।");
       }
 
-      for(let partIndex=activePart;partIndex<parts.length;partIndex+=1){
-        activePart=partIndex;
-        setProgress("Chapter "+number+": Part "+(partIndex+1)+" / "+parts.length+" analyze हो रहा है…");
-
+      // Analyze all remaining logical parts concurrently. Each request receives the
+      // previous chapter summary plus a small neighboring context window, so parallel
+      // execution does not depend on another part finishing first. Results are merged
+      // strictly by part index afterwards to preserve story order and deterministic
+      // scene numbering.
+      const remainingIndexes=Array.from({length:parts.length-activePart},(_,i)=>activePart+i);
+      setProgress("Chapter "+number+": "+remainingIndexes.length+" logical parts parallel analyze हो रहे हैं…");
+      const analyses=await Promise.all(remainingIndexes.map(async(partIndex)=>{
+        const neighborContext=[
+          partIndex>0?"PREVIOUS PART END CONTEXT:\n"+parts[partIndex-1].split(/\\s+/).slice(-90).join(" "):"",
+          partIndex+1<parts.length?"NEXT PART START CONTEXT:\n"+parts[partIndex+1].split(/\\s+/).slice(0,90).join(" "):""
+        ].filter(Boolean).join("\n\n");
         const analysis=await postJsonWithRetry<AnalyzePayload>("/api/novel/analyze",{
           mode:"chunk",
           segmentIndex:partIndex,
@@ -215,12 +223,16 @@ export default function NovelImportPage(){
           visualStyle:projectImageStyle(working),
           visualDensity:density,
           previousSummary,
-          previousSegmentSummary:partSummaries.at(-1)||"",
+          previousSegmentSummary:neighborContext,
           analysisProvider,
           analysisModel
         });
         if(!analysis.scenes?.length)throw new Error(analysis.error||"Part "+(partIndex+1)+" से visual beats नहीं मिले।");
+        return {partIndex,analysis};
+      }));
 
+      for(const {partIndex,analysis} of analyses.sort((a,b)=>a.partIndex-b.partIndex)){
+        activePart=partIndex;
         const characters=mergeCharacters(working.characters,analysis.characters||[]);
         const locations=mergeLocations(working.locations,analysis.locations||[]);
         let nextSceneNumber=working.images.reduce((max,image)=>Math.max(max,image.sceneNumber),0)+1;
@@ -246,41 +258,21 @@ export default function NovelImportPage(){
         partSceneIds[partIndex]=newScenes.map((scene)=>scene.id);
 
         const checkpoint:ChapterAnalysisProgress={
-          sourceKey,
-          totalParts:parts.length,
-          completedParts:partIndex+1,
-          status:partIndex+1===parts.length?"processing":"processing",
-          partSummaries:[...partSummaries],
-          partExplainers:[...partExplainers],
-          partSceneIds:partSceneIds.map((ids)=>[...ids]),
-          updatedAt:new Date().toISOString()
+          sourceKey,totalParts:parts.length,completedParts:partIndex+1,status:"processing",
+          partSummaries:[...partSummaries],partExplainers:[...partExplainers],
+          partSceneIds:partSceneIds.map((ids)=>[...ids]),updatedAt:new Date().toISOString()
         };
-
         const state=working.novelImport||emptyImport();
         const chapter=state.chapters.find((item)=>item.number===number);
         const updatedChapter:NovelChapter={
-          ...(chapter||{
-            number,title:"Chapter "+number,url:"manual://chapter-"+number,sourceText:chapterText,scannedAt:new Date().toISOString(),sceneIds:[],status:"analyzing" as const
-          }),
-          sourceText:chapterText,
-          summary:partSummaries.filter(Boolean).join(" "),
+          ...(chapter||{number,title:"Chapter "+number,url:"manual://chapter-"+number,sourceText:chapterText,scannedAt:new Date().toISOString(),sceneIds:[],status:"analyzing" as const}),
+          sourceText:chapterText,summary:partSummaries.filter(Boolean).join(" "),
           explainer:partExplainers.filter(Boolean).join("\n\n"),
-          visualStyle:analysis.visualStyle||projectImageStyle(working),
-          visualDensity:density,
-          sceneIds:partSceneIds.flat(),
-          status:"analyzing",
-          analysisProgress:checkpoint,
-          error:undefined
+          visualStyle:analysis.visualStyle||projectImageStyle(working),visualDensity:density,
+          sceneIds:partSceneIds.flat(),status:"analyzing",analysisProgress:checkpoint,error:undefined
         };
         const nextState={...state,currentChapter:number,chapters:upsertChapter(state.chapters,updatedChapter)};
-        working={
-          ...working,
-          characters,
-          locations,
-          images:[...working.images,...newScenes],
-          novelImport:nextState,
-          updatedAt:new Date().toISOString()
-        };
+        working={...working,characters,locations,images:[...working.images,...newScenes],novelImport:nextState,updatedAt:new Date().toISOString()};
         commit(working);
       }
 
