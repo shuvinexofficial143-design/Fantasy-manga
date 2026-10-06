@@ -54,6 +54,8 @@ export type ChapterAnalysisProgress={
 
 export type VideoPlanSegment={sceneId:string;order:number;narration:string};
 export type ChapterVideoPlan={createdAt:string;segments:VideoPlanSegment[]};
+export type ChapterPipelineStage="queued"|"analyzing"|"polishing"|"images"|"syncing"|"voice"|"ready"|"error";
+export type ChapterPipelineState={stage:ChapterPipelineStage;progress:number;message:string;startedAt?:string;updatedAt:string;error?:string};
 
 export type NovelChapter={
   number:number;
@@ -66,6 +68,7 @@ export type NovelChapter={
   visualStyle?:string;
   visualDensity?:VisualDensity;
   videoPlan?:ChapterVideoPlan;
+  pipeline?:ChapterPipelineState;
   analysisProgress?:ChapterAnalysisProgress;
   scannedAt:string;
   analyzedAt?:string;
