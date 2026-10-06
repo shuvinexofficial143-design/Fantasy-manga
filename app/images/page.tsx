@@ -22,10 +22,10 @@ const XKIRO_BATCH_SIZE=12;
 const XKIRO_PROMPT_MAX_CHARS=5200;
 
 function compactXkiroPrompt(fullPrompt:string){
-  const sections=fullPrompt.split(/\\n\\n+/).map((part)=>part.trim()).filter(Boolean);
+  const sections=fullPrompt.split(/\n\n+/).map((part)=>part.trim()).filter(Boolean);
   const priority=["Generate exactly ONE","MASTER ART-DIRECTION LOCK","CURRENT STORY MOMENT","CURRENT LOCATION","CHARACTER BIBLE","CAMERA CONTINUITY","CURRENT CONTINUITY NOTES","COMPOSITION","ABSOLUTE LAYOUT RULE"];
   const selected=priority.flatMap((prefix)=>sections.filter((section)=>section.startsWith(prefix)));
-  const compact=selected.join("\\n\\n");
+  const compact=selected.join("\n\n");
   return (compact||fullPrompt).slice(0,XKIRO_PROMPT_MAX_CHARS);
 }
 
