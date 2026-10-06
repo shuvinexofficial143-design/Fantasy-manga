@@ -19,6 +19,8 @@ const IMAGE_MODELS=[
 ];
 
 const XKIRO_BATCH_SIZE=12;
+const GEMINI_INITIAL_CONCURRENCY=2;
+const GEMINI_MAX_CONCURRENCY=4;
 const XKIRO_PROMPT_MAX_CHARS=5200;
 
 function compactXkiroPrompt(fullPrompt:string){
@@ -89,12 +91,20 @@ export default function ImagesPage(){
           commit(working);
         }
       }else{
-        for(let index=0;index<pendingIds.length;index+=1){
-          const id=pendingIds[index];
-          setProgress("Google Cloud Gemini · image "+(index+1)+" / "+pendingIds.length+" sequentially generate हो रही है…");
-          const done=await generateScene(id,working)();
-          working={...working,images:working.images.map((item)=>item.id===done.id?done:item),updatedAt:new Date().toISOString()};
+        // Vertex image generation is network-bound. Generate a small controlled wave in
+        // parallel instead of waiting for every image serially. We start conservatively
+        // and grow to four only after a clean wave; the provider itself still owns 429
+        // retry/backoff, so this speeds healthy projects without flooding Vertex.
+        let offset=0;
+        let concurrency=Math.min(GEMINI_INITIAL_CONCURRENCY,pendingIds.length);
+        while(offset<pendingIds.length){
+          const batch=pendingIds.slice(offset,offset+concurrency);
+          setProgress("Google Cloud Gemini · "+Math.min(offset+batch.length,pendingIds.length)+" / "+pendingIds.length+" · "+batch.length+" images parallel generate हो रही हैं…");
+          const results=await Promise.all(batch.map((id)=>generateScene(id,working)()));
+          working={...working,images:working.images.map((item)=>results.find((done)=>done.id===item.id)||item),updatedAt:new Date().toISOString()};
           commit(working);
+          offset+=batch.length;
+          if(concurrency<GEMINI_MAX_CONCURRENCY&&offset<pendingIds.length)concurrency=Math.min(GEMINI_MAX_CONCURRENCY,concurrency+1);
         }
       }
       const state=working.novelImport||novel;
@@ -125,7 +135,7 @@ export default function ImagesPage(){
           <select value={selectedModel.provider+"|"+selectedModel.model} onChange={(e)=>{const [provider,...rest]=e.target.value.split("|");selectModel(provider as "gemini"|"xkiro",rest.join("|"))}} disabled={!!busy} className="w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm font-bold">
             {IMAGE_MODELS.map((item)=><option key={item.provider+"|"+item.model} value={item.provider+"|"+item.model}>{item.label}</option>)}
           </select>
-          <div className="mt-2 text-xs text-slate-500">{selectedModel.note}. {selectedModel.provider==="xkiro"?"xKiro jobs are submitted in controlled waves of 12; the next wave starts only after the previous wave finishes.":"Google Cloud image models use the existing Vertex path; generation remains sequential to avoid flooding Vertex capacity."}</div>
+          <div className="mt-2 text-xs text-slate-500">{selectedModel.note}. {selectedModel.provider==="xkiro"?"xKiro jobs are submitted in controlled waves of 12; the next wave starts only after the previous wave finishes.":"Google Cloud image models use controlled parallel waves (2 → 4) with the existing provider retry/backoff protection."}</div>
         </div>
       </div>
     </section>
