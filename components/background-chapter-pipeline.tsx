@@ -1,12 +1,11 @@
 "use client";
 
 import {useEffect,useRef} from "react";
-import {useProject} from "@/components/project-provider";
 import {chapterSourceKey,splitChapterForDensity} from "@/lib/chapters";
 import {createImage} from "@/lib/default-project";
 import {projectImageStyle} from "@/lib/style-presets";
 import {findLocation,findNamed,namedSceneCharacters} from "@/lib/novel-continuity";
-import type {Character,ChapterAnalysisProgress,Location,NovelChapter,Project} from "@/lib/types";
+import type {Character,ChapterAnalysisProgress,Location,NovelChapter,Project,StudioState} from "@/lib/types";
 
 const MAX_CHAPTER_JOBS=3;
 const uid=()=>typeof crypto!=="undefined"&&"randomUUID" in crypto?crypto.randomUUID():String(Date.now())+"-"+Math.random().toString(36).slice(2);
@@ -51,8 +50,7 @@ function mergeLocations(existing:Location[],incoming:Analysis["locations"]){
  return out;
 }
 
-export function BackgroundChapterPipeline(){
- const {state,setState}=useProject();
+export function BackgroundChapterPipeline({state,setState}:{state:StudioState;setState:React.Dispatch<React.SetStateAction<StudioState>>}){
  const stateRef=useRef(state);
  const running=useRef(new Set<string>());
  useEffect(()=>{stateRef.current=state},[state]);
