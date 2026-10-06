@@ -49,7 +49,10 @@ export async function POST(req:Request){
       }
     };
 
-    await Promise.all(Array.from({length:Math.min(4,items.length)},()=>worker()));
+    // TTS calls are independent network requests. A bounded pool keeps latency low
+    // without creating an unbounded burst against Google Cloud.
+    const workerCount=Math.min(8,items.length);
+    await Promise.all(Array.from({length:workerCount},()=>worker()));
     return NextResponse.json({
       voiceName,
       languageCode,
