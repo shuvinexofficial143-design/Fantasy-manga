@@ -137,7 +137,7 @@ export function ProjectProvider({children}:{children:React.ReactNode}){
   const updateProject=(fn:(project:Project)=>Project)=>setState((current)=>({...current,projects:current.projects.map((item)=>item.id===project.id?fn(item):item)}));
   const createNewProject=()=>{const next=createProject(`Cinematic Project ${state.projects.length+1}`);setState((current)=>({...current,activeProjectId:next.id,projects:[...current.projects,next]}))};
 
-  return <ProjectContext.Provider value={{state,project,setState,updateProject,createNewProject,persistenceError}}><BackgroundChapterPipeline/>{children}</ProjectContext.Provider>;
+  return <ProjectContext.Provider value={{state,project,setState,updateProject,createNewProject,persistenceError}}><BackgroundChapterPipeline state={state} setState={setState}/>{children}</ProjectContext.Provider>;
 }
 
 export function useProject(){
