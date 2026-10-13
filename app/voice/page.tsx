@@ -22,7 +22,8 @@ const LANGUAGES=[
   ["ur-IN","Urdu (India)"],
   ["bn-IN","Bengali (India)"],
   ["ta-IN","Tamil (India)"],
-  ["te-IN","Telugu (India)"]
+  ["te-IN","Telugu (India)"],
+  ["all","All available Google Cloud voices"]
 ] as const;
 
 function genderLabel(value:string){
@@ -56,6 +57,7 @@ export default function VoicePage(){
   const familyVoices=useMemo(()=>voices.filter((voice)=>!family||voice.family===family),[voices,family]);
   const selectedVoice=voices.find((voice)=>voice.name===voiceName);
   const isChirp3=selectedVoice?.family==="Chirp 3 HD";
+  const synthesisLanguage=selectedVoice?.languageCodes?.[0]||languageCode;
 
   useEffect(()=>{
     const id=++requestId.current;
@@ -104,7 +106,7 @@ export default function VoicePage(){
         headers:{"Content-Type":"application/json"},
         body:JSON.stringify({
           text:explainer,
-          languageCode,
+          languageCode:synthesisLanguage,
           voiceName,
           speakingRate,
           pitch,
