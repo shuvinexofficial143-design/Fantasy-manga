@@ -14,11 +14,11 @@ const IMAGE_MODELS=[
   {provider:"gemini" as const,model:"gemini-3.1-flash-image",label:"Google Cloud · Gemini 3.1 Flash Image (Nano Banana 2)",note:"Current Google image model · existing default"},
   {provider:"gemini" as const,model:"gemini-3-pro-image",label:"Google Cloud · Gemini 3 Pro Image (Nano Banana Pro)",note:"Current Google image model · higher-end image generation"},
   {provider:"gemini" as const,model:"gemini-2.5-flash-image",label:"Google Cloud · Gemini 2.5 Flash Image",note:"Current Google image model · supported until March 15, 2027"},
-  {provider:"xkiro" as const,model:"sensenova/sensenova-u1.5-lite",label:"xKiro · SenseNova U1.5 Lite",note:"Free image tier · controlled 12-image parallel waves"},
+  {provider:"xkiro" as const,model:"sensenova/sensenova-u1.5-lite",label:"xKiro · SenseNova U1.5 Lite",note:"Free image tier · sequential reference-guided generation"},
   {provider:"xkiro" as const,model:"openai/gpt-image-2.5",label:"xKiro · GPT Image 2.5",note:"Paid image model · controlled 12-image parallel waves"}
 ];
 
-const XKIRO_BATCH_SIZE=12;
+const XKIRO_BATCH_SIZE=1;
 const GEMINI_INITIAL_CONCURRENCY=2;
 const GEMINI_MAX_CONCURRENCY=4;
 const XKIRO_PROMPT_MAX_CHARS=5200;
@@ -135,7 +135,7 @@ export default function ImagesPage(){
           <select value={selectedModel.provider+"|"+selectedModel.model} onChange={(e)=>{const [provider,...rest]=e.target.value.split("|");selectModel(provider as "gemini"|"xkiro",rest.join("|"))}} disabled={!!busy} className="w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm font-bold">
             {IMAGE_MODELS.map((item)=><option key={item.provider+"|"+item.model} value={item.provider+"|"+item.model}>{item.label}</option>)}
           </select>
-          <div className="mt-2 text-xs text-slate-500">{selectedModel.note}. {selectedModel.provider==="xkiro"?"xKiro jobs are submitted in controlled waves of 12; the next wave starts only after the previous wave finishes.":"Google Cloud image models use controlled parallel waves (2 → 4) with the existing provider retry/backoff protection."}</div>
+          <div className="mt-2 text-xs text-slate-500">{selectedModel.note}. {selectedModel.provider==="xkiro"?"xKiro jobs are submitted in sequentially, using previously completed images for continuity.":"Google Cloud image models use controlled parallel waves (2 → 4) with the existing provider retry/backoff protection."}</div>
         </div>
       </div>
     </section>
