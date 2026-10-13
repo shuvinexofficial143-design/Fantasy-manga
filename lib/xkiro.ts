@@ -91,7 +91,7 @@ export async function generateXkiroImage(prompt:string,model:string,width:number
     ?await fetchWithRetry(`${BASE_URL}/images/edits`,{
       method:"POST",
       headers:{"Authorization":`Bearer ${key}`},
-      body:(()=>{const form=new FormData();form.append("image",source.blob,source.name);form.append("model",model);form.append("prompt",prompt);form.append("n","1");form.append("size",imageSize(width,height));return form})()
+      body:(()=>{const form=new FormData();form.append("image",source.blob,source.name);form.append("model",model);form.append("prompt",prompt);form.append("size",imageSize(width,height));return form})()
     })
     :await fetchWithRetry(`${BASE_URL}/images/generations`,{
       method:"POST",
