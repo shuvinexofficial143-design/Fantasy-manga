@@ -55,6 +55,10 @@ export default function ImagesPage(){
     const fullPrompt=buildCinematicPrompt({scene,project:working,previousScene:previous});
     const prompt=working.imageProvider==="xkiro"?compactXkiroPrompt(fullPrompt):fullPrompt;
     const refs=novelReferences(scene,working,previous);
+    if(working.imageProvider==="xkiro"&&working.imageModel==="openai/gpt-image-2.5"){
+      const recent=[...ordered.slice(0,index)].reverse().find((item)=>Boolean(item.image));
+      if(recent?.image){refs.images.unshift(recent.image);refs.labels.unshift("Immediate preceding completed scene: prioritize visual continuity");}
+    }
     const response=await fetch("/api/generate",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({
       prompt,negativePrompt:scene.negativePrompt,aspectRatio:working.aspectRatio,
       provider:working.imageProvider,model:working.imageModel,
