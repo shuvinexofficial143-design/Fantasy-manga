@@ -147,7 +147,7 @@ export function voiceFamily(name:string){
 }
 
 export async function listGoogleTtsVoices(languageCode:string){
-  const response=await ttsFetch("/voices?languageCode="+encodeURIComponent(languageCode),{method:"GET"});
+  const response=await ttsFetch(languageCode==="all"?"/voices":"/voices?languageCode="+encodeURIComponent(languageCode),{method:"GET"});
   const data=await response.json() as {voices?:Array<{name?:string;languageCodes?:string[];ssmlGender?:string;naturalSampleRateHertz?:number}>};
   return (data.voices||[])
     .filter((voice)=>Boolean(voice.name))
