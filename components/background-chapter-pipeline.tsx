@@ -59,7 +59,7 @@ export function BackgroundChapterPipeline({state,setState}:{state:StudioState;se
   for(const project of state.projects){
    const novel=project.novelImport;
    if(!novel?.autoGenerate)continue;
-   const candidates=novel.chapters.filter((chapter)=>chapter.sourceText?.trim().length>=120&&["draft","scanned","error"].includes(chapter.status)&&chapter.pipeline?.stage!=="error");
+   const candidates=novel.chapters.filter((chapter)=>chapter.sourceText?.trim().length>=120&&["draft","scanned"].includes(chapter.status)&&chapter.pipeline?.stage!=="error");
    for(const chapter of candidates){
     const key=project.id+":"+chapter.number;
     if(running.current.has(key)||running.current.size>=MAX_CHAPTER_JOBS)continue;
@@ -80,7 +80,10 @@ export function BackgroundChapterPipeline({state,setState}:{state:StudioState;se
     const chapter=project.novelImport.chapters.find((c)=>c.number===chapterNumber);if(!chapter)return;
     const parts=splitChapterForDensity(chapter.sourceText,project.visualDensity);
     const sourceKey=chapterSourceKey(chapter.sourceText,project.visualDensity,project.imageStylePreset);
-    const previousSummary=[...project.novelImport.chapters].filter((c)=>c.number<chapterNumber&&c.summary).sort((a,b)=>b.number-a.number)[0]?.summary||"";
+    const earlier=project.novelImport.chapters.filter((c)=>c.number<chapterNumber).sort((a,b)=>b.number-a.number);
+    const predecessor=earlier[0];
+    if(predecessor?.sourceText?.trim()&&predecessor.status!=="analyzed"&&predecessor.status!=="generated")return;
+    const previousSummary=predecessor?.summary||"";
     patchChapter((c)=>({...c,status:"analyzing",pipeline:{stage:"analyzing",progress:5,message:parts.length+" parts parallel analyze हो रहे हैं…",startedAt:new Date().toISOString(),updatedAt:new Date().toISOString()}}));
 
     const analyses=await Promise.all(parts.map(async(part,partIndex)=>{
