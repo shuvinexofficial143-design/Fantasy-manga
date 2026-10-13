@@ -130,6 +130,8 @@ export type Project={
   imageModel:string;
   analysisProvider:"vertex"|"xkiro";
   analysisModel:string;
+  planningProvider?:"vertex"|"xkiro";
+  planningModel?:string;
   styleReferenceImage?:string;
   styleReferences:ReferenceImage[];
   novelImport?:NovelImportState;
