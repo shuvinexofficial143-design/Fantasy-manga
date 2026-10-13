@@ -101,6 +101,8 @@ export default function NovelImportPage(){
   useEffect(()=>{void fetch("/api/xkiro/models?modality=chat").then((response)=>response.json()).then((data)=>{if(Array.isArray(data.models))setFreeStoryModels(data.models)}).catch(()=>{});},[]);
   const analysisProvider=project.analysisProvider||"vertex";
   const analysisModel=project.analysisModel||"gemini-3.1-pro-preview";
+  const planningModel=project.planningModel||"gemini-2.5-flash";
+  const planningProvider=project.planningProvider||"vertex";
   const vertexStoryModels=[
     {id:"gemini-3.7-flash",label:"Gemini 3.7 Flash"},
     {id:"gemini-3.6-flash",label:"Gemini 3.6 Flash"},
@@ -116,6 +118,7 @@ export default function NovelImportPage(){
   const setAnalysisProvider=(provider:"vertex"|"xkiro")=>updateAnalysis(provider,provider==="vertex"?"gemini-3.1-pro-preview":(freeStoryModels[0]?.id||"sensenova/sensenova-6.8-flash-lite"));
   const updateAnalysis=(provider:"vertex"|"xkiro",model:string)=>setState((current)=>({...current,projects:current.projects.map((item)=>item.id===project.id?{...item,analysisProvider:provider,analysisModel:model,updatedAt:new Date().toISOString()}:item)}));
 
+  const updatePlanning=(provider:"vertex"|"xkiro",model:string)=>setState((current)=>({...current,projects:current.projects.map((item)=>item.id===project.id?{...item,planningProvider:provider,planningModel:model,updatedAt:new Date().toISOString()}:item)}));
   const selectedChapter=useMemo(()=>novel.chapters.find((item)=>item.number===chapterNumber),[novel.chapters,chapterNumber]);
   const effectiveChapterText=(manualText.trim()||selectedChapter?.sourceText.trim()||"");
   const analysisPartCount=useMemo(()=>effectiveChapterText.length>=120?splitChapterForDensity(effectiveChapterText,project.visualDensity).length:0,[effectiveChapterText,project.visualDensity]);
@@ -352,6 +355,7 @@ export default function NovelImportPage(){
         </div>
       </div>
 
+      <div className="rounded-xl border border-violet-200 bg-violet-50 p-4"><label className="block text-sm font-black text-violet-900">Visual Beats / Image Prompt Planning Model</label><select className="mt-2 w-full rounded-lg border border-violet-200 bg-white p-3 text-sm" value={planningProvider+"|"+planningModel} onChange={(e)=>{const [provider,...model]=e.target.value.split("|");updatePlanning(provider as "vertex"|"xkiro",model.join("|"))}}>{vertexStoryModels.map((m)=><option key={m.id} value={"vertex|"+m.id}>{m.label}</option>)}{freeStoryModels.map((m)=><option key={m.id} value={"xkiro|"+m.id}>xKiro · {m.display_name||m.id}</option>)}</select><p className="mt-2 text-xs text-violet-700">Visual planning model अलग save होगा। Deep analysis की existing pipeline अभी analysis model से ही visual beats बनाती है; अलग planning execution अगले architecture step में जोड़ा जाएगा।</p></div>
       <div className="mt-5 rounded-2xl border border-slate-200 bg-slate-50 p-4">
         <div className="text-xs font-black uppercase tracking-wider text-slate-500">Story Analysis Model</div>
         <div className="mt-2 flex flex-col gap-2 sm:flex-row">
