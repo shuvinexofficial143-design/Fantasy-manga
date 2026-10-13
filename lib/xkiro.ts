@@ -100,7 +100,8 @@ export async function generateXkiroImage(prompt:string,model:string,width:number
     });
   const job=await response.json() as {id?:string;status?:string;error?:{message?:string}};
   if(!job.id)throw new Error(job.error?.message||"xKiro did not return an image job id.");
-  const sourceUrl=job.status==="succeeded"?(job as unknown as {data?:Array<{url?:string}>}).data?.[0]?.url:await pollImageJob(job.id);
+  const completedUrl=(job as unknown as {data?:Array<{url?:string}>}).data?.[0]?.url;
+  const sourceUrl=job.status==="succeeded"?completedUrl:await pollImageJob(job.id);
   if(!sourceUrl)throw new Error("xKiro image job completed without an image URL.");
   const imageResponse=await fetch(sourceUrl,{cache:"no-store"});
   if(!imageResponse.ok)throw new Error("xKiro CDN image could not be downloaded.");
