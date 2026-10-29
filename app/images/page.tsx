@@ -52,10 +52,11 @@ export default function ImagesPage(){
     const index=ordered.findIndex((item)=>item.id===sceneId);
     if(index<0)throw new Error("Scene not found.");
     const scene=ordered[index],previous=index>0?ordered[index-1]:undefined;
-    if(working.continuityMode==="strict"&&scene.usePreviousImage&&previous&&!previous.image)throw new Error("Strict continuity के लिए पहले Scene "+previous.sceneNumber+" generate करें।");
-    const fullPrompt=buildCinematicPrompt({scene,project:working,previousScene:previous});
+    // Missing previous frames must not deadlock a chapter: use the nearest available completed frame.
+    const completedPrevious=[...ordered.slice(0,index)].reverse().find((item)=>Boolean(item.image));
+    const fullPrompt=buildCinematicPrompt({scene,project:working,previousScene:previous?.image?previous:completedPrevious});
     const prompt=working.imageProvider==="xkiro"?compactXkiroPrompt(fullPrompt):fullPrompt;
-    const refs=novelReferences(scene,working,previous);
+    const refs=novelReferences(scene,working,completedPrevious);
     if(working.imageProvider==="xkiro"&&working.imageModel==="openai/gpt-image-2.5"){
       const recent=[...ordered.slice(0,index)].reverse().find((item)=>Boolean(item.image));
       if(recent?.image){refs.images.unshift(recent.image);refs.labels.unshift("Immediate preceding completed scene: prioritize visual continuity");}
@@ -90,7 +91,7 @@ export default function ImagesPage(){
       if(working.imageProvider==="xkiro"||working.imageProvider==="sensenova"){
         for(let offset=0;offset<pendingIds.length;offset+=XKIRO_BATCH_SIZE){
           const batch=pendingIds.slice(offset,offset+XKIRO_BATCH_SIZE);
-          setProgress("xKiro · Batch "+(Math.floor(offset/XKIRO_BATCH_SIZE)+1)+" · "+batch.length+" images parallel generate हो रही हैं…");
+          setProgress((working.imageProvider==="sensenova"?"SenseNova":"xKiro")+" · "+(offset+1)+" / "+pendingIds.length+" · क्रम से image बन रही है…");
           const results=await Promise.all(batch.map((id)=>generateScene(id,working)()));
           working={...working,images:working.images.map((item)=>results.find((done)=>done.id===item.id)||item),updatedAt:new Date().toISOString()};
           commit(working);
@@ -118,7 +119,7 @@ export default function ImagesPage(){
       commit(working);
       setNotice("Chapter "+chapter.number+" की remaining images complete हो गईं।");
     }catch(reason){
-      setError(reason instanceof Error?reason.message:"Sequence generation stopped.");
+      setError("Batch रुका: "+(reason instanceof Error?reason.message:"Sequence generation stopped.")+" पहले बनी images सुरक्षित हैं।");
     }finally{setBusy("");setProgress("")}
   };
 
@@ -145,7 +146,7 @@ export default function ImagesPage(){
       </div>
     </section>
 
-    {styleReferenceCount>0&&<div className="rounded-2xl border border-fuchsia-200 bg-fuchsia-50 p-4 text-sm font-semibold text-fuchsia-800">Style reference active: Gemini can use the reference pack; xKiro GPT Image 2.5 uses the first project reference as its master source-image style anchor. Direct SenseNova attempts multi-reference image editing; if the endpoint rejects it, generation fails explicitly instead of silently ignoring references.</div>}
+    {styleReferenceCount>0&&<div className="rounded-xl border border-fuchsia-100 bg-fuchsia-50 p-3 text-xs text-fuchsia-800">Reference images: {styleReferenceCount} style reference(s) मौजूद हैं। Character master और पिछली दो completed images को प्राथमिकता दी जाएगी। {project.imageProvider==="sensenova"?"SenseNova edit API की reference compatibility अभी पूरी तरह verified नहीं है।":""}</div>}
     {progress&&<div className="rounded-2xl border border-violet-200 bg-violet-50 p-4 text-sm font-medium text-violet-800"><Loader2 className="mr-2 inline animate-spin" size={15}/>{progress}</div>}
     {notice&&<div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm font-medium text-emerald-800">{notice}</div>}
     {error&&<div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm font-medium text-red-700"><AlertTriangle className="mr-2 inline" size={15}/>{error}</div>}
