@@ -10,6 +10,7 @@ import {novelReferences} from "@/lib/novel-continuity";
 import type {CinematicImage,Project} from "@/lib/types";
 
 const IMAGE_MODELS=[
+  {provider:"sensenova" as const,model:"sensenova-u1.5-lite",label:"SenseNova · U1.5 Lite (Direct API)",note:"Direct SenseNova API · character master + previous two frames sent to reference edit endpoint; unsupported edits report an error"},
   {provider:"gemini" as const,model:"gemini-3.1-flash-lite-image",label:"Google Cloud · Gemini 3.1 Flash-Lite Image (Nano Banana 2 Lite)",note:"Current Google image model · fastest/lowest-cost option"},
   {provider:"gemini" as const,model:"gemini-3.1-flash-image",label:"Google Cloud · Gemini 3.1 Flash Image (Nano Banana 2)",note:"Current Google image model · existing default"},
   {provider:"gemini" as const,model:"gemini-3-pro-image",label:"Google Cloud · Gemini 3 Pro Image (Nano Banana Pro)",note:"Current Google image model · higher-end image generation"},
@@ -42,7 +43,7 @@ export default function ImagesPage(){
   const scenes=(chapter?.sceneIds||[]).map((id)=>project.images.find((image)=>image.id===id)).filter((image):image is CinematicImage=>Boolean(image));
 
   const selectedModel=IMAGE_MODELS.find((item)=>item.provider===project.imageProvider&&item.model===project.imageModel)||IMAGE_MODELS[0];
-  const selectModel=(provider:"gemini"|"xkiro",model:string)=>updateProject((p)=>({...p,imageProvider:provider,imageModel:model,updatedAt:new Date().toISOString()}));
+  const selectModel=(provider:"gemini"|"xkiro"|"sensenova",model:string)=>updateProject((p)=>({...p,imageProvider:provider,imageModel:model,updatedAt:new Date().toISOString()}));
 
   const commit=(next:Project)=>setState((current)=>({...current,projects:current.projects.map((item)=>item.id===next.id?next:item)}));
 
@@ -86,7 +87,7 @@ export default function ImagesPage(){
     let working=project;
     try{
       const pendingIds=chapter.sceneIds.filter((id)=>!working.images.find((item)=>item.id===id)?.image);
-      if(working.imageProvider==="xkiro"){
+      if(working.imageProvider==="xkiro"||working.imageProvider==="sensenova"){
         for(let offset=0;offset<pendingIds.length;offset+=XKIRO_BATCH_SIZE){
           const batch=pendingIds.slice(offset,offset+XKIRO_BATCH_SIZE);
           setProgress("xKiro · Batch "+(Math.floor(offset/XKIRO_BATCH_SIZE)+1)+" · "+batch.length+" images parallel generate हो रही हैं…");
@@ -136,15 +137,15 @@ export default function ImagesPage(){
         </div>
         <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
           <div className="mb-2 text-xs font-black uppercase tracking-wider text-slate-500">Image Model</div>
-          <select value={selectedModel.provider+"|"+selectedModel.model} onChange={(e)=>{const [provider,...rest]=e.target.value.split("|");selectModel(provider as "gemini"|"xkiro",rest.join("|"))}} disabled={!!busy} className="w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm font-bold">
+          <select value={selectedModel.provider+"|"+selectedModel.model} onChange={(e)=>{const [provider,...rest]=e.target.value.split("|");selectModel(provider as "gemini"|"xkiro"|"sensenova",rest.join("|"))}} disabled={!!busy} className="w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm font-bold">
             {IMAGE_MODELS.map((item)=><option key={item.provider+"|"+item.model} value={item.provider+"|"+item.model}>{item.label}</option>)}
           </select>
-          <div className="mt-2 text-xs text-slate-500">{selectedModel.note}. {selectedModel.provider==="xkiro"?"xKiro jobs are submitted in sequentially, using previously completed images for continuity.":"Google Cloud image models use controlled parallel waves (2 → 4) with the existing provider retry/backoff protection."}</div>
+          <div className="mt-2 text-xs text-slate-500">{selectedModel.note}. {selectedModel.provider==="xkiro"||selectedModel.provider==="sensenova"?"Sequential jobs are submitted in sequentially, using previously completed images for continuity.":"Google Cloud image models use controlled parallel waves (2 → 4) with the existing provider retry/backoff protection."}</div>
         </div>
       </div>
     </section>
 
-    {styleReferenceCount>0&&<div className="rounded-2xl border border-fuchsia-200 bg-fuchsia-50 p-4 text-sm font-semibold text-fuchsia-800">Style reference active: Gemini can use the reference pack; xKiro GPT Image 2.5 uses the first project reference as its master source-image style anchor. SenseNova is text-to-image only, so it uses the compact style/continuity prompt without an image input.</div>}
+    {styleReferenceCount>0&&<div className="rounded-2xl border border-fuchsia-200 bg-fuchsia-50 p-4 text-sm font-semibold text-fuchsia-800">Style reference active: Gemini can use the reference pack; xKiro GPT Image 2.5 uses the first project reference as its master source-image style anchor. Direct SenseNova attempts multi-reference image editing; if the endpoint rejects it, generation fails explicitly instead of silently ignoring references.</div>}
     {progress&&<div className="rounded-2xl border border-violet-200 bg-violet-50 p-4 text-sm font-medium text-violet-800"><Loader2 className="mr-2 inline animate-spin" size={15}/>{progress}</div>}
     {notice&&<div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm font-medium text-emerald-800">{notice}</div>}
     {error&&<div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm font-medium text-red-700"><AlertTriangle className="mr-2 inline" size={15}/>{error}</div>}
