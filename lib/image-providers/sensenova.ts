@@ -23,21 +23,22 @@ export async function generateSenseNovaImage(input:ImageGenerationInput){
     form.append("model",model);
     form.append("prompt",input.prompt);
     form.append("size",size);
-    for(const [index,value] of refs.entries()){
-      const file=imageFile(value,index);
-      form.append("image",file.blob,file.name);
-    }
+    // Try the documented OpenAI-compatible single image form first; multi-image
+    // support varies by model and must not be assumed.
+    const file=imageFile(refs[0],0);
+    form.append("image",file.blob,file.name);
     response=await fetch(base+"/images/edits",{method:"POST",headers:{Authorization:"Bearer "+key},body:form,cache:"no-store"});
   }else{
     response=await fetch(base+"/images/generations",{method:"POST",headers:{Authorization:"Bearer "+key,"Content-Type":"application/json"},body:JSON.stringify({model,prompt:input.prompt,size,n:1}),cache:"no-store"});
   }
   if(!response.ok){
     const detail=(await response.text().catch(()=>"")).slice(0,350);
+    if(refs.length&&response.status===400)throw new Error("SenseNova ने reference edit request अस्वीकार की (400)। यह model/API इस image-edit format को support नहीं कर रहा हो सकता है। बिना references के image generate नहीं की गई। Gemini reference-capable model चुनें या SenseNova editing support verify करें।");
     throw new Error("SenseNova "+(refs.length?"reference editing":"generation")+" failed ("+response.status+"): "+detail);
   }
   const payload=await response.json() as {data?:Array<{url?:string;b64_json?:string}>};
   const item=payload.data?.[0];
-  if(item?.b64_json)return {imageDataUrl:"data:image/png;base64,"+item.b64_json,referenceCount:refs.length};
+  if(item?.b64_json)return {imageDataUrl:"data:image/png;base64,"+item.b64_json,referenceCount:refs.length?1:0};
   if(!item?.url)throw new Error("SenseNova returned no usable image. Check direct API response compatibility.");
   const downloaded=await fetch(item.url,{cache:"no-store"});
   if(!downloaded.ok)throw new Error("SenseNova generated image download failed.");
