@@ -1,12 +1,28 @@
 import type {ImageGenerationInput} from "./types";
+import sharp from "sharp";
 
 const BASE_URL="https://token.sensenova.ai/v1";
 export function senseNovaConfigured(){return Boolean(process.env.SENSENOVA_API_KEY?.trim())}
 
-function referenceUrl(value:string,index:number){
-  if(/^data:image\/[a-zA-Z0-9.+-]+;base64,[A-Za-z0-9+/=]+$/.test(value))return value;
-  if(/^https:\/\//.test(value))return value;
-  throw new Error("SenseNova reference "+(index+1)+" must be an HTTPS URL or image Data URL.");
+async function normalizeReference(value:string,index:number){
+  let bytes:Buffer;
+  if(/^data:image\/[a-zA-Z0-9.+-]+;base64,/.test(value)){
+    bytes=Buffer.from(value.slice(value.indexOf(",")+1),"base64");
+  }else if(/^https:\/\//.test(value)){
+    const response=await fetch(value,{cache:"no-store",signal:AbortSignal.timeout(15000)});
+    if(!response.ok)throw new Error("Reference "+(index+1)+" download failed ("+response.status+").");
+    const raw=await response.arrayBuffer();
+    if(raw.byteLength>20*1024*1024)throw new Error("Reference "+(index+1)+" exceeds the input safety limit.");
+    bytes=Buffer.from(raw);
+  }else throw new Error("Reference "+(index+1)+" must be a data image or HTTPS URL.");
+  if(!bytes.length||bytes.length>20*1024*1024)throw new Error("Reference "+(index+1)+" has invalid image size.");
+  // SenseNova accepts PNG/JPEG/WebP, 256–4096 px, <=10 MB and <=2:1 ratio.
+  // Normalize to a 1024px square with padding to preserve the full source frame.
+  const output=await sharp(bytes,{limitInputPixels:40_000_000}).rotate()
+    .resize(1024,1024,{fit:"contain",background:{r:245,g:245,b:245,alpha:1}})
+    .jpeg({quality:84,mozjpeg:true}).toBuffer();
+  if(output.length>10*1024*1024)throw new Error("Reference "+(index+1)+" remains too large after normalization.");
+  return "data:image/jpeg;base64,"+output.toString("base64");
 }
 
 const PROMPT_LIMIT=4800;
@@ -38,9 +54,10 @@ export async function generateSenseNovaImage(input:ImageGenerationInput){
   // Upstream reference ordering: character masters, last two frames, then style/location.
   const refs=(input.referenceImages||[]).slice(0,5);
   const size=input.width/input.height>1.5?"1536x1024":input.width<input.height?"1024x1536":"1024x1024";
+  const normalized=await Promise.all(refs.map(normalizeReference));
   const payload=refs.length
-    ?{model,images:refs.map((value,index)=>({image_url:referenceUrl(value,index)})),prompt:compactSenseNovaPrompt(input.prompt),n:1,size:"auto",watermark:true,prompt_extend:true,response_format:"url"}
-    :{model,prompt:input.prompt,n:1,size,watermark:true,prompt_extend:true,response_format:"url"};
+    ?{model,images:normalized.map((image_url)=>({image_url})),prompt:compactSenseNovaPrompt(input.prompt),n:1,size:"auto",watermark:true,prompt_extend:true,response_format:"url"}
+    :{model,prompt:compactSenseNovaPrompt(input.prompt),n:1,size,watermark:true,prompt_extend:true,response_format:"url"};
   const response=await fetch(base+(refs.length?"/images/edits":"/images/generations"),{
     method:"POST",
     headers:{Authorization:"Bearer "+key,"Content-Type":"application/json"},
