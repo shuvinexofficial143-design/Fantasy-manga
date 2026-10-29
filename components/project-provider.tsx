@@ -67,7 +67,7 @@ function normalizeProject(project:Partial<Project>):Project{
     continuityMode:project.continuityMode==="balanced"?"balanced":"strict",
     visualDensity:project.visualDensity==="highest"||project.visualDensity==="ultra"?project.visualDensity:"standard",
     imageStylePreset:project.imageStylePreset==="cinematic-realistic"||project.imageStylePreset==="custom"?project.imageStylePreset:"reference-video",
-    imageProvider:project.imageProvider==="xkiro"?"xkiro":"gemini",
+    imageProvider:project.imageProvider==="sensenova"?"sensenova":project.imageProvider==="xkiro"?"xkiro":"gemini",
     imageModel:typeof project.imageModel==="string"&&project.imageModel?project.imageModel:"gemini-3.1-flash-image",
     analysisProvider:project.analysisProvider==="xkiro"?"xkiro":"vertex",
     analysisModel:typeof project.analysisModel==="string"&&project.analysisModel?project.analysisModel:"gemini-3.1-pro-preview",
