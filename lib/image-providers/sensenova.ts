@@ -9,6 +9,26 @@ function referenceUrl(value:string,index:number){
   throw new Error("SenseNova reference "+(index+1)+" must be an HTTPS URL or image Data URL.");
 }
 
+const PROMPT_LIMIT=4800;
+function compactSenseNovaPrompt(full:string){
+  if(full.length<=PROMPT_LIMIT)return full;
+  const blocks=full.split(/\n\s*\n/).map((part)=>part.trim()).filter(Boolean);
+  const priorities=["CURRENT STORY MOMENT","CHARACTER BIBLE","CURRENT LOCATION","CAMERA CONTINUITY","CURRENT CONTINUITY NOTES","MASTER ART-DIRECTION LOCK","COMPOSITION","ABSOLUTE LAYOUT RULE","Generate exactly ONE"];
+  const ranked=[...blocks].sort((a,b)=>{
+    const rank=(value:string)=>{const i=priorities.findIndex((prefix)=>value.startsWith(prefix));return i<0?priorities.length:i};
+    return rank(a)-rank(b);
+  });
+  const selected:string[]=[];
+  let remaining=PROMPT_LIMIT;
+  for(const block of ranked){
+    if(remaining<80)break;
+    const part=block.slice(0,remaining-2);
+    selected.push(part);
+    remaining-=part.length+2;
+  }
+  return selected.join("\n\n").slice(0,PROMPT_LIMIT);
+}
+
 export async function generateSenseNovaImage(input:ImageGenerationInput){
   const key=process.env.SENSENOVA_API_KEY?.trim();
   if(!key)throw new Error("SENSENOVA_API_KEY is not configured.");
@@ -17,7 +37,7 @@ export async function generateSenseNovaImage(input:ImageGenerationInput){
   const refs=(input.referenceImages||[]).slice(0,8);
   const size=input.width/input.height>1.5?"1536x1024":input.width<input.height?"1024x1536":"1024x1024";
   const payload=refs.length
-    ?{model,images:refs.map((value,index)=>({image_url:referenceUrl(value,index)})),prompt:input.prompt,n:1,size:"auto",watermark:true,prompt_extend:true,response_format:"url"}
+    ?{model,images:refs.map((value,index)=>({image_url:referenceUrl(value,index)})),prompt:compactSenseNovaPrompt(input.prompt),n:1,size:"auto",watermark:true,prompt_extend:true,response_format:"url"}
     :{model,prompt:input.prompt,n:1,size,watermark:true,prompt_extend:true,response_format:"url"};
   const response=await fetch(base+(refs.length?"/images/edits":"/images/generations"),{
     method:"POST",
@@ -27,7 +47,7 @@ export async function generateSenseNovaImage(input:ImageGenerationInput){
   });
   if(!response.ok){
     const detail=(await response.text().catch(()=>"")).slice(0,350);
-    if(refs.length&&response.status===400)throw new Error("SenseNova reference request (400): "+detail+" — JSON images format भेजा गया है; reference image size/content या model permissions जाँचें।");
+    if(response.status===400)throw new Error("SenseNova ने request अस्वीकार की (400): "+detail+"। Prompt को 4800 characters तक सीमित किया गया है।");
     throw new Error("SenseNova "+(refs.length?"reference editing":"generation")+" failed ("+response.status+"): "+detail);
   }
   const result=await response.json() as {data?:Array<{url?:string;b64_json?:string}>};
