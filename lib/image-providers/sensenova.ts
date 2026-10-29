@@ -34,7 +34,9 @@ export async function generateSenseNovaImage(input:ImageGenerationInput){
   if(!key)throw new Error("SENSENOVA_API_KEY is not configured.");
   const base=(process.env.SENSENOVA_BASE_URL||BASE_URL).replace(/\/$/,"");
   const model=process.env.SENSENOVA_IMAGE_MODEL||"sensenova-u1.5-lite";
-  const refs=(input.referenceImages||[]).slice(0,8);
+  // SenseNova /images/edits accepts at most five source images.
+  // Upstream reference ordering: character masters, last two frames, then style/location.
+  const refs=(input.referenceImages||[]).slice(0,5);
   const size=input.width/input.height>1.5?"1536x1024":input.width<input.height?"1024x1536":"1024x1024";
   const payload=refs.length
     ?{model,images:refs.map((value,index)=>({image_url:referenceUrl(value,index)})),prompt:compactSenseNovaPrompt(input.prompt),n:1,size:"auto",watermark:true,prompt_extend:true,response_format:"url"}
@@ -47,7 +49,7 @@ export async function generateSenseNovaImage(input:ImageGenerationInput){
   });
   if(!response.ok){
     const detail=(await response.text().catch(()=>"")).slice(0,350);
-    if(response.status===400)throw new Error("SenseNova ने request अस्वीकार की (400): "+detail+"। Prompt को 4800 characters तक सीमित किया गया है।");
+    if(response.status===400)throw new Error("SenseNova ने request अस्वीकार की (400): "+detail+"। अधिकतम 5 references और 4800-character prompt लागू हैं।");
     throw new Error("SenseNova "+(refs.length?"reference editing":"generation")+" failed ("+response.status+"): "+detail);
   }
   const result=await response.json() as {data?:Array<{url?:string;b64_json?:string}>};
