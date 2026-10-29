@@ -55,7 +55,17 @@ export function novelReferences(scene:CinematicImage,project:Project,previous?:C
     }
   }
 
-  const refs=[...styleRefs,...continuityRefs].slice(0,8);
+  // Prioritize character identity and the previous two completed frames.
+  const masters=scene.characterStates.flatMap((state)=>{
+    const character=project.characters.find((item)=>item.id===state.characterId);
+    return character?.referenceImage?[{image:character.referenceImage,label:"Character master: "+character.name}]:[];
+  });
+  const frames=scene.usePreviousImage?earlier.slice(-2).reverse().map((item)=>({image:item.image!,label:"Previous completed scene "+item.sceneNumber})):[];
+  const refs:Array<{image:string;label:string}>=[];
+  for(const ref of [...masters,...frames,...continuityRefs,...styleRefs]){
+    if(!refs.some((item)=>item.image===ref.image))refs.push(ref);
+    if(refs.length===8)break;
+  }
   return {images:refs.map((item)=>item.image),labels:refs.map((item)=>item.label),styleCount:styleRefs.length,continuityCount:continuityRefs.length};
 }
 
