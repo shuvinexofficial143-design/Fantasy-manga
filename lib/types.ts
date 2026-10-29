@@ -126,7 +126,7 @@ export type Project={
   continuityMode:"strict"|"balanced";
   visualDensity:VisualDensity;
   imageStylePreset:ImageStylePreset;
-  imageProvider:"gemini"|"xkiro";
+  imageProvider:"gemini"|"xkiro"|"sensenova";
   imageModel:string;
   analysisProvider:"vertex"|"xkiro";
   analysisModel:string;
