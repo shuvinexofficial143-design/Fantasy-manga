@@ -7,6 +7,7 @@ import {useState} from "react";
 import {useProject} from "@/components/project-provider";
 import {buildCinematicPrompt,hashString} from "@/lib/cinematic";
 import {novelReferences} from "@/lib/novel-continuity";
+import {imageBatchPendingIds} from "@/lib/image-batch";
 import type {CinematicImage,Project} from "@/lib/types";
 
 const IMAGE_MODELS=[
@@ -109,10 +110,7 @@ export default function ImagesPage(){
     let consecutiveSafetyBlocks=0;
     try{
       // A provider-blocked scene must be reviewed manually before it is retried.
-      const pendingIds=chapter.sceneIds.filter((id)=>{
-        const item=working.images.find((image)=>image.id===id);
-        return item&&!item.image&&!(working.imageProvider==="sensenova"&&item.failureCode==="SENSENOVA_SENSITIVE_IMAGE");
-      });
+      const pendingIds=imageBatchPendingIds(chapter.sceneIds,working.images,working.imageProvider);
       if(working.imageProvider==="xkiro"||working.imageProvider==="sensenova"){
         for(let offset=0;offset<pendingIds.length;offset+=XKIRO_BATCH_SIZE){
           const batch=pendingIds.slice(offset,offset+XKIRO_BATCH_SIZE);
