@@ -1,12 +1,13 @@
 "use client";
 
-import {useEffect,useMemo,useState} from "react";
+import {useEffect,useMemo,useState,useSyncExternalStore} from "react";
 import Link from "next/link";
 import {AlertTriangle,BookOpenCheck,FileText,Loader2,Sparkles} from "lucide-react";
 import {chapterSourceKey,splitChapterForDensity} from "@/lib/chapters";
 import {createImage} from "@/lib/default-project";
 import {projectImageStyle} from "@/lib/style-presets";
 import {replaceChapterScenes} from "@/lib/novel-workflow";
+import {currentStoryDraft,notifyStoryDraftChanged,saveStoryDraft,storyDraftKey,storyInputValue,subscribeStoryDraft} from "@/lib/story-drafts";
 import {findLocation,findNamed,namedSceneCharacters} from "@/lib/novel-continuity";
 import type {ChapterAnalysisProgress,Character,Location,NovelChapter,NovelImportState,Project} from "@/lib/types";
 import {useProject} from "@/components/project-provider";
@@ -90,9 +91,25 @@ export default function NovelImportPage(){
   const {project,setState,persistenceError}=useProject();
   const novel=project.novelImport||emptyImport();
   const chapterNumber=Math.max(1,novel.currentChapter||1);
-  const [manualByChapter,setManualByChapter]=useState<Record<number,string>>({});
-  const manualText=manualByChapter[chapterNumber]||"";
-  const setManualText=(value:string)=>setManualByChapter((current)=>({...current,[chapterNumber]:value}));
+  const selectedChapter=useMemo(()=>novel.chapters.find((item)=>item.number===chapterNumber),[novel.chapters,chapterNumber]);
+  const activeDraftKey=storyDraftKey(project.id,chapterNumber);
+  const [manualByKey,setManualByKey]=useState<Record<string,string>>({});
+  const [draftWarning,setDraftWarning]=useState("");
+  // Read browser drafts as an external store, without setState in an effect.
+  // The saved analyzed chapter is a reliable fallback on page remount.
+  const storedDraft=useSyncExternalStore(
+    subscribeStoryDraft,()=>currentStoryDraft(activeDraftKey),()=>undefined
+  );
+  const manualText=storyInputValue(manualByKey[activeDraftKey]??storedDraft,selectedChapter?.sourceText);
+  const setManualText=(value:string)=>{
+    setManualByKey((current)=>({...current,[activeDraftKey]:value}));
+    if(typeof window!=="undefined"){
+      let saved=false;
+      try{saved=saveStoryDraft(window.localStorage,activeDraftKey,value)}catch{/* Browser storage disabled. */}
+      if(saved)notifyStoryDraftChanged();
+      setDraftWarning(saved?"":"Browser draft storage उपलब्ध नहीं है। Analysis शुरू होते ही chapter text project में save होगा; उससे पहले text की copy रखें।");
+    }
+  };
   const [busy,setBusy]=useState("");
   const [progress,setProgress]=useState("");
   const [notice,setNotice]=useState("");
@@ -119,8 +136,7 @@ export default function NovelImportPage(){
   const updateAnalysis=(provider:"vertex"|"xkiro",model:string)=>setState((current)=>({...current,projects:current.projects.map((item)=>item.id===project.id?{...item,analysisProvider:provider,analysisModel:model,updatedAt:new Date().toISOString()}:item)}));
 
   const updatePlanning=(provider:"vertex"|"xkiro",model:string)=>setState((current)=>({...current,projects:current.projects.map((item)=>item.id===project.id?{...item,planningProvider:provider,planningModel:model,updatedAt:new Date().toISOString()}:item)}));
-  const selectedChapter=useMemo(()=>novel.chapters.find((item)=>item.number===chapterNumber),[novel.chapters,chapterNumber]);
-  const effectiveChapterText=(manualText.trim()||selectedChapter?.sourceText.trim()||"");
+  const effectiveChapterText=manualText.trim();
   const analysisPartCount=useMemo(()=>effectiveChapterText.length>=120?splitChapterForDensity(effectiveChapterText,project.visualDensity).length:0,[effectiveChapterText,project.visualDensity]);
   const commit=(next:Project)=>setState((current)=>({...current,projects:current.projects.map((item)=>{
     if(item.id!==next.id)return item;
@@ -385,6 +401,8 @@ export default function NovelImportPage(){
       <label className="mt-5 grid gap-1.5 text-sm font-semibold text-slate-700">
         Chapter {chapterNumber} Story Input
         <textarea value={manualText} disabled={!!busy} onChange={(e)=>setManualText(e.target.value)} placeholder="पूरा chapter text यहाँ paste करें…" className="min-h-64 rounded-xl border border-slate-200 px-3 py-3 text-sm leading-6"/>
+        <span className="text-xs font-normal text-slate-500">Story draft इसी browser में project और chapter के हिसाब से save रहता है। Analysis के बाद भी textbox में text रहेगा।</span>
+        {selectedChapter?.sourceText&&selectedChapter.sourceText!==manualText&&<button type="button" disabled={!!busy} onClick={()=>setManualText(selectedChapter.sourceText)} className="w-fit rounded-lg border border-violet-200 bg-white px-3 py-1.5 text-xs font-bold text-violet-700 disabled:opacity-50">Restore saved chapter text</button>}
         <span className="text-xs font-normal text-slate-500">{effectiveChapterText.length.toLocaleString()} characters{analysisPartCount?` · ${analysisPartCount} logical analysis part${analysisPartCount===1?"":"s"}`:""}</span>
       </label>
 
@@ -412,6 +430,7 @@ export default function NovelImportPage(){
     {progress&&<div className="rounded-2xl border border-violet-200 bg-violet-50 p-4 text-sm text-violet-800"><Loader2 className="mr-2 inline animate-spin" size={16}/>{progress}</div>}
     {notice&&<div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm font-medium text-emerald-800">{notice}</div>}
     {error&&<div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm font-medium text-red-700"><AlertTriangle className="mr-2 inline" size={16}/>{error}</div>}
+    {draftWarning&&<div role="alert" className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm font-medium text-amber-800"><AlertTriangle className="mr-2 inline" size={16}/>{draftWarning}</div>}
     {persistenceError&&<div role="alert" className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm font-medium text-red-700"><AlertTriangle className="mr-2 inline" size={16}/>{persistenceError}</div>}
 
     {selectedChapter?.analysisProgress?.status==="complete"&&<section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
