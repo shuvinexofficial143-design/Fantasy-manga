@@ -1,13 +1,13 @@
 "use client";
 
-import {useEffect,useMemo,useState} from "react";
+import {useEffect,useMemo,useState,useSyncExternalStore} from "react";
 import Link from "next/link";
 import {AlertTriangle,BookOpenCheck,FileText,Loader2,Sparkles} from "lucide-react";
 import {chapterSourceKey,splitChapterForDensity} from "@/lib/chapters";
 import {createImage} from "@/lib/default-project";
 import {projectImageStyle} from "@/lib/style-presets";
 import {replaceChapterScenes} from "@/lib/novel-workflow";
-import {readStoryDraft,saveStoryDraft,storyDraftKey,storyInputValue} from "@/lib/story-drafts";
+import {currentStoryDraft,notifyStoryDraftChanged,saveStoryDraft,storyDraftKey,storyInputValue,subscribeStoryDraft} from "@/lib/story-drafts";
 import {findLocation,findNamed,namedSceneCharacters} from "@/lib/novel-continuity";
 import type {ChapterAnalysisProgress,Character,Location,NovelChapter,NovelImportState,Project} from "@/lib/types";
 import {useProject} from "@/components/project-provider";
@@ -95,27 +95,21 @@ export default function NovelImportPage(){
   const activeDraftKey=storyDraftKey(project.id,chapterNumber);
   const [manualByKey,setManualByKey]=useState<Record<string,string>>({});
   const [draftWarning,setDraftWarning]=useState("");
-  // Do not rely on component-local state alone: analyzing can remount the page.
-  // A persisted chapter source remains visible even when the local draft is absent.
-  const manualText=storyInputValue(manualByKey[activeDraftKey],selectedChapter?.sourceText);
+  // Read browser drafts as an external store, without setState in an effect.
+  // The saved analyzed chapter is a reliable fallback on page remount.
+  const storedDraft=useSyncExternalStore(
+    subscribeStoryDraft,()=>currentStoryDraft(activeDraftKey),()=>undefined
+  );
+  const manualText=storyInputValue(manualByKey[activeDraftKey]??storedDraft,selectedChapter?.sourceText);
   const setManualText=(value:string)=>{
     setManualByKey((current)=>({...current,[activeDraftKey]:value}));
     if(typeof window!=="undefined"){
       let saved=false;
       try{saved=saveStoryDraft(window.localStorage,activeDraftKey,value)}catch{/* Browser storage disabled. */}
+      if(saved)notifyStoryDraftChanged();
       setDraftWarning(saved?"":"Browser draft storage उपलब्ध नहीं है। Analysis शुरू होते ही chapter text project में save होगा; उससे पहले text की copy रखें।");
     }
   };
-  useEffect(()=>{
-    // Run after hydration; do not overwrite text already typed while loading.
-    if(typeof window==="undefined")return;
-    let cached:string|undefined;
-    try{cached=readStoryDraft(window.localStorage,activeDraftKey)}catch{/* Browser storage disabled. */}
-    if(cached!==undefined){
-      setManualByKey((current)=>Object.prototype.hasOwnProperty.call(current,activeDraftKey)
-        ?current:{...current,[activeDraftKey]:cached});
-    }
-  },[activeDraftKey]);
   const [busy,setBusy]=useState("");
   const [progress,setProgress]=useState("");
   const [notice,setNotice]=useState("");
