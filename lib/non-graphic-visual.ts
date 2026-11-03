@@ -18,3 +18,14 @@ export function nonGraphicVisualBeat(sourceText:string):string{
   // For a provider-blocked, otherwise neutral beat, the text itself remains intact.
   return `Cinematic, non-graphic depiction: ${source}. Emphasize expressions, atmosphere and indirect storytelling, without visible bodily harm, gore or graphic detail.`;
 }
+
+/**
+ * Use a non-graphic shot from the outset for clearly depicted bodily violence.
+ * This is a creative framing choice, not a retry after the provider has rejected
+ * the request; rejected scenes still require an explicit user action.
+ */
+export function shouldStartNonGraphic(sourceText:string):boolean{
+  return /\b(?:stab(?:bed|bing)?|impal(?:e|ed|ing)|pierc(?:e|ed|ing)|thrust|dismember(?:ed|ing)?|sever(?:ed|ing)?|tortur(?:e|ed|ing)|gore)\b/i.test(sourceText)
+    || /\b(?:sword|dagger|blade|knife)\b[^.?!]{0,80}\b(?:chest|body|neck|heart)\b/i.test(sourceText)
+    || /\b(?:grabbed|clutched)\b[^.?!]{0,50}\bchest\b/i.test(sourceText);
+}
