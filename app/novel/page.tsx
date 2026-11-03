@@ -101,14 +101,16 @@ export default function NovelImportPage(){
   const setManualText=(value:string)=>{
     setManualByKey((current)=>({...current,[activeDraftKey]:value}));
     if(typeof window!=="undefined"){
-      const saved=saveStoryDraft(window.localStorage,activeDraftKey,value);
+      let saved=false;
+      try{saved=saveStoryDraft(window.localStorage,activeDraftKey,value)}catch{/* Browser storage disabled. */}
       setDraftWarning(saved?"":"Browser draft storage उपलब्ध नहीं है। Analysis शुरू होते ही chapter text project में save होगा; उससे पहले text की copy रखें।");
     }
   };
   useEffect(()=>{
     // Run after hydration; do not overwrite text already typed while loading.
     if(typeof window==="undefined")return;
-    const cached=readStoryDraft(window.localStorage,activeDraftKey);
+    let cached:string|undefined;
+    try{cached=readStoryDraft(window.localStorage,activeDraftKey)}catch{/* Browser storage disabled. */}
     if(cached!==undefined){
       setManualByKey((current)=>Object.prototype.hasOwnProperty.call(current,activeDraftKey)
         ?current:{...current,[activeDraftKey]:cached});
