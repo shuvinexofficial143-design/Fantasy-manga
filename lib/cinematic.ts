@@ -1,5 +1,6 @@
 import type {Character,CinematicImage,Location,Project,SceneCharacterState} from "./types";
 import {projectImageStyle,REFERENCE_VIDEO_NEGATIVE_STYLE} from "./style-presets";
+import {planSceneVisual,sceneNeedsVisualAdaptation} from "./scene-visual-safety";
 
 export function aspectRatioToSize(aspectRatio:string){
   if(aspectRatio==="9:16")return {width:768,height:1365};
@@ -32,14 +33,28 @@ export function summarizeSceneContinuity(scene:CinematicImage,project:Project){
   return [`Scene ${scene.sceneNumber}: ${scene.title}`,location?`Location: ${location.name}`:"Location: continue previous environment unless story changes it.",characters?`Character states: ${characters}`:"No recurring character explicitly selected.",`Camera: ${scene.cameraShot}; ${scene.cameraAngle}; ${scene.cameraDirection}`,scene.continuityNotes?`Continuity notes: ${scene.continuityNotes}`:""] .filter(Boolean).join("\n");
 }
 
-export function buildCinematicPrompt({scene,project,previousScene,visualBeat}:{scene:CinematicImage;project:Project;previousScene?:CinematicImage;visualBeat?:string}){
-  const nonGraphic=Boolean(visualBeat?.trim());
-  const activeCharacters=scene.characterStates.map((state)=>({state,character:project.characters.find((item)=>item.id===state.characterId)})).filter((item):item is {state:SceneCharacterState;character:Character}=>Boolean(item.character));
+export function buildCinematicPrompt({scene,project,previousScene}:{scene:CinematicImage;project:Project;previousScene?:CinematicImage}){
+  // Compute the image-safe visual beat while building the FINAL image prompt,
+  // not after a failed provider request. Never mutate sourceText or analysis.
+  const visual=planSceneVisual(scene.sourceText);
+  const adjusted=visual.adjusted;
+  const activeCharacters=scene.characterStates.map((state)=>({
+    state,character:project.characters.find((item)=>item.id===state.characterId)
+  })).filter((item):item is {state:SceneCharacterState;character:Character}=>Boolean(item.character));
   const location=project.locations.find((item)=>item.id===scene.locationId);
-  const characterBible=activeCharacters.length?activeCharacters.map(({character,state})=>[`${character.name} (${character.role})`,`fixed identity: ${character.appearance||"use reference identity"}`,`established outfit: ${character.outfit||"preserve reference outfit unless this story beat changes it"}`,!nonGraphic&&character.continuityNotes?`locked character facts: ${character.continuityNotes}`:"",nonGraphic?`current position: ${state.position}; facing: ${state.direction}; expression: ${state.expression}`:`current state: ${stateText(state,character)}`].filter(Boolean).join("; ")).join("\n"):"No recurring character is required unless the story moment explicitly introduces one.";
-  const previousText=nonGraphic
-    ?"Keep the established identities, architecture, lighting and screen direction from the last completed frame. Show only calm, expressive faces and the new atmospheric moment."
-    :previousScene?summarizeSceneContinuity(previousScene,project):"This is the first frame of the sequence; establish the canonical screen geography clearly.";
+  const safeDetail=(value:string|undefined,fallback:string)=>adjusted&&value&&sceneNeedsVisualAdaptation(value)?fallback:value||fallback;
+  const characterBible=activeCharacters.length?activeCharacters.map(({character,state})=>[
+    `${character.name} (${character.role})`,
+    `fixed identity: ${safeDetail(character.appearance,"preserve established face, hair and proportions")}`,
+    `established outfit: ${safeDetail(character.outfit,"preserve established intact clothing and colors")}`,
+    !adjusted&&character.continuityNotes?`locked character facts: ${character.continuityNotes}`:"",
+    adjusted?`current position: ${safeDetail(state.position,"preserve prior placement")}; facing: ${safeDetail(state.direction,"preserve screen direction")}; expression: ${safeDetail(state.expression,"story-appropriate response")}`:
+      `current state: ${stateText(state,character)}`
+  ].filter(Boolean).join("; ")).join("\n"):"No additional recurring person is required unless the current visual introduces one.";
+  const previousText=adjusted
+    ?"Keep the established character identities, architecture, costume colors, lighting, landmarks and screen direction from the previous completed frame."
+    :previousScene?summarizeSceneContinuity(previousScene,project):
+      "This is the first frame; establish the canonical screen geography clearly.";
   const lockedStyle=projectImageStyle(project);
   const styleReferenceCount=(project.styleReferences||[]).length+(project.styleReferenceImage?1:0);
   const styleBoundary=project.imageStylePreset==="reference-video"
@@ -47,21 +62,27 @@ export function buildCinematicPrompt({scene,project,previousScene,visualBeat}:{s
     :"";
   return [
     `Generate exactly ONE complete ${project.aspectRatio} cinematic full-frame image, not a page and not a collage.`,
-    `MASTER ART-DIRECTION LOCK: ${lockedStyle}. This is a hard project constraint, not a suggestion. Keep the same facial-design language, painterly/rendering language, hair and fabric treatment, environment detail, color science, contrast, atmosphere and production quality across every frame.`,
+    `MASTER ART-DIRECTION LOCK: ${lockedStyle}. This is a hard project constraint. Preserve the same character designs, rendering, hair and fabric treatment, atmosphere, color science and production quality as adjacent frames.`,
+    "COLOR CONSISTENCY: Keep the same rich full-color palette and cinematic color grading from the project style references and previous frames. Never automatically switch the image to black-and-white, monochrome or grayscale.",
     styleBoundary,
-    styleReferenceCount?`UPLOADED STYLE REFERENCE PACK: ${Math.min(styleReferenceCount,4)} project reference image(s) are attached. Match their shared art direction, facial-rendering language, line/paint treatment, lighting, palette, atmosphere, costume/material richness and cinematic finish. Do NOT copy their specific people, objects, poses, framing or scene content.`:"",
-    !nonGraphic&&project.worldNotes?`WORLD BIBLE: ${project.worldNotes}`:"",
-    `CURRENT STORY MOMENT: ${visualBeat||scene.sourceText}`,
-    `CURRENT LOCATION: ${location?nonGraphic?`${location.name}; lighting=${location.lighting}`:`${location.name} — ${location.description}; lighting=${location.lighting}; locked facts=${location.continuityNotes||"preserve architecture and landmark placement"}`:"Continue the previous location unless the story clearly changes it."}`,
+    styleReferenceCount?`UPLOADED STYLE REFERENCE PACK: ${Math.min(styleReferenceCount,4)} project style reference image(s) are attached for facial-design language, rendering, lighting, palette, atmosphere, material details and cinematic finish. Do not copy their unrelated subjects or composition.`:"",
+    !adjusted&&project.worldNotes?`WORLD BIBLE: ${project.worldNotes}`:"",
+    `CURRENT STORY MOMENT: ${visual.moment}`,
+    `CURRENT LOCATION: ${location
+      ?adjusted?`${location.name}; lighting=${location.lighting}; preserve established architecture and landmarks`:
+        `${location.name} — ${location.description}; lighting=${location.lighting}; locked facts=${location.continuityNotes||"preserve architecture and landmark placement"}`
+      :"Continue the established location unless the story changes it."}`,
     `CHARACTER BIBLE + CURRENT STATE:\n${characterBible}`,
-    `CAMERA CONTINUITY: shot=${scene.cameraShot}; angle=${scene.cameraAngle}; screen direction=${scene.cameraDirection}. Preserve left/right geography and eyelines from the previous frame unless the current action explicitly crosses the axis.`,
+    `CAMERA CONTINUITY: shot=${safeDetail(scene.cameraShot,"medium reaction shot")}; angle=${safeDetail(scene.cameraAngle,"eye level")}; screen direction=${safeDetail(scene.cameraDirection,"preserve previous screen direction")}. Preserve left/right geography and eye lines.`,
     `PREVIOUS SCENE STATE:\n${previousText}`,
-    !nonGraphic&&scene.continuityNotes?`CURRENT CONTINUITY NOTES: ${scene.continuityNotes}`:"",
-    nonGraphic?`CONTINUITY STRENGTH: ${scene.continuityStrength}/100. Preserve identity, costume, setting, light direction, camera geography and character count; show only a restrained, non-graphic reaction.`:`CONTINUITY STRENGTH: ${scene.continuityStrength}/100. Identity, costume, injuries, carried props, location geometry, time of day, light direction, character count and screen geography are hard constraints. Only story-authorized action, pose, expression and camera framing should change.`,
-    nonGraphic?"REFERENCE PRIORITY: use character masters only for identity and outfit, location masters for the environment and previous frames for lighting, camera direction and color. Depict a new non-graphic beat only.":"REFERENCE PRIORITY: character master references establish exact identity; location master establishes environment; the immediately previous generated frame establishes pose progression, injuries, props, screen direction and background continuity. Advance the action by exactly one beat.",
-    nonGraphic?"ABSOLUTE CONSISTENCY RULES: do not invent people; preserve face, hairstyle, proportions, costume, location landmarks, relative positions and screen geography; focus on intact costumes and natural expressions.":"ABSOLUTE CONSISTENCY RULES: never invent extra recurring characters; never remove a character who is still present; never change face, hairstyle, age, body proportions, outfit colors/design, weapon, injury side, jewelry or major prop unless the story says so; preserve background landmarks and relative positions; preserve left/right/foreground/background geography; if someone exits, keep them absent until the story brings them back.",
-    "COMPOSITION: one premium animated-film keyframe, one unified frame, strong subject hierarchy, intentional lens, depth, atmospheric perspective, polished volumetric lighting, refined color grading and production-ready detail. The result must feel authored by the same art team as every neighboring frame.",
-    "ABSOLUTE LAYOUT RULE: NOT manga panels, NOT webtoon panels, NOT comic page. No borders, gutters, split canvas, speech bubbles, captions, text boxes, watermark, logo or UI."
+    !adjusted&&scene.continuityNotes?`CURRENT CONTINUITY NOTES: ${scene.continuityNotes}`:"",
+    adjusted
+      ?`CONTINUITY STRENGTH: ${scene.continuityStrength}/100. Preserve identity, costume, setting, character count, props outside the camera's focus, light direction and scene geography. Use an expressive camera angle, natural occlusion or shallow depth of field for the distant action.`
+      :`CONTINUITY STRENGTH: ${scene.continuityStrength}/100. Identity, costume, injuries, carried props, location geometry, time of day, light direction, character count and screen geography are hard constraints. Only story-authorized action, pose, expression and camera framing should change.`,
+    "REFERENCE PRIORITY: character masters define identity and outfit; location masters define environment; previous completed frame defines colors, atmosphere, shot continuity, landmarks and screen direction.",
+    "CONSISTENCY: preserve recurring faces, outfits, visual language and background landmarks; do not add unrelated people, objects, on-screen text or narrative details.",
+    "COMPOSITION: one premium full-color animated-film keyframe, unified cinematic frame, intentional lens, depth, atmospheric perspective, polished lighting and color grading.",
+    "LAYOUT: no manga panels, webtoon panels, comic gutters, captions, speech bubbles, watermark, logo or UI."
   ].filter(Boolean).join("\n\n");
 }
 
