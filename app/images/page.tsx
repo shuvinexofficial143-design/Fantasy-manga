@@ -111,6 +111,41 @@ export default function ImagesPage(){
     }finally{setBusy("");setProgress("")}
   };
 
+  const retryBlockedNonGraphic=async()=>{
+    if(!chapter||project.imageProvider!=="sensenova")return;
+    const blockedIds=chapter.sceneIds.filter((id)=>{
+      const scene=project.images.find((item)=>item.id===id);
+      return scene&&!scene.image&&scene.failureCode==="SENSENOVA_SENSITIVE_IMAGE";
+    });
+    if(!blockedIds.length)return;
+    setBusy("non-graphic");setError("");setNotice("");
+    let working=project;
+    let completed=0;
+    try{
+      for(const [index,id] of blockedIds.entries()){
+        setProgress("Non-graphic cinematic image · "+(index+1)+" / "+blockedIds.length);
+        try{
+          const done=await generateScene(id,working,true)();
+          working={...working,images:working.images.map((item)=>item.id===id?done:item),updatedAt:new Date().toISOString()};
+          commit(working);
+          completed++;
+        }catch(reason){
+          working=recordFailure(working,id,reason);
+          commit(working);
+          const code=(reason as {code?:unknown}|null)?.code;
+          if(code==="SENSENOVA_SENSITIVE_IMAGE"){
+            setError("Non-graphic image भी SenseNova ने अस्वीकार की। इसी request को बार-बार नहीं भेजेंगे। References / character master की समीक्षा करें। "+completed+" नई images सुरक्षित हैं।");
+            return;
+          }
+          throw reason;
+        }
+      }
+      setNotice(completed+" blocked scene(s) non-graphic visual के रूप में बनीं। अब Generate Remaining से बाकी scenes बनाएँ।");
+    }catch(reason){
+      setError("Non-graphic retry रुका: "+(reason instanceof Error?reason.message:"Generation failed")+". पहले बनी images सुरक्षित हैं।");
+    }finally{setBusy("");setProgress("")}
+  };
+
   const generateSequence=async()=>{
     if(!chapter||!scenes.length)return;
     setBusy("sequence");setError("");setNotice("");
@@ -180,6 +215,8 @@ export default function ImagesPage(){
     }finally{setBusy("");setProgress("")}
   };
 
+  const blockedSceneCount=scenes.filter((scene)=>!scene.image&&scene.failureCode==="SENSENOVA_SENSITIVE_IMAGE").length;
+  const remainingUnblocked=imageBatchPendingIds(chapter?.sceneIds||[],project.images,project.imageProvider).length;
   const ready=scenes.filter((scene)=>Boolean(scene.image)).length;
   const styleReferenceCount=(project.styleReferences||[]).length;
 
@@ -190,7 +227,7 @@ export default function ImagesPage(){
           <div><div className="text-xs font-black uppercase tracking-[.2em] text-fuchsia-600">Image Generation</div><h1 className="mt-2 text-3xl font-black">Images</h1><p className="mt-2 text-sm leading-6 text-slate-500">{chapter?"Chapter "+chapter.number+" · "+ready+" / "+scenes.length+" images ready":"कोई active chapter नहीं है।"}</p></div>
           <div className="flex flex-wrap gap-2">
             <Link href="/references" className="inline-flex items-center justify-center gap-2 rounded-xl border border-fuchsia-200 bg-fuchsia-50 px-4 py-2.5 text-sm font-black text-fuchsia-700"><Palette size={16}/> References {styleReferenceCount}/4</Link>
-            {scenes.length>0&&<button disabled={!!busy} onClick={()=>void generateSequence()} className="inline-flex items-center justify-center gap-2 rounded-xl bg-violet-600 px-4 py-2.5 text-sm font-black text-white disabled:opacity-50"><Sparkles size={16}/> Generate Remaining</button>}
+            {remainingUnblocked>0&&<button disabled={!!busy} onClick={()=>void generateSequence()} className="inline-flex items-center justify-center gap-2 rounded-xl bg-violet-600 px-4 py-2.5 text-sm font-black text-white disabled:opacity-50"><Sparkles size={16}/> Generate Remaining</button>}{project.imageProvider==="sensenova"&&blockedSceneCount>0&&<button disabled={!!busy} onClick={()=>void retryBlockedNonGraphic()} className="inline-flex items-center justify-center gap-2 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-black text-white disabled:opacity-50"><Sparkles size={16}/> Generate Blocked Non-Graphic ({blockedSceneCount})</button>}
           </div>
         </div>
         <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
