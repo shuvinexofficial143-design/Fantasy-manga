@@ -7,6 +7,6 @@ export async function POST(req:Request){try{const body=await req.json() as Body,
   if(!known)console.error("Cinematic image generation failed",error);
   return NextResponse.json({
     error:error instanceof Error?error.message:"Image generation failed",
-    ...(known?{code:error.code,retryable:false}:{})
+    ...(known?{code:error.code,retryable:error.code==="SENSENOVA_RATE_LIMIT"||error.statusCode>=500}:{})
   },{status:known&&error.code==="SENSENOVA_SENSITIVE_IMAGE"?422:502});
 }}
