@@ -13,3 +13,11 @@ export function imageBatchPendingIds(
     return Boolean(scene&&!scene.image&&!(provider==="sensenova"&&scene.failureCode==="SENSENOVA_SENSITIVE_IMAGE"));
   });
 }
+
+/** Honor a provider's safety rejection for this frame, and move to the next one.
+ * Network, authentication, quota and malformed-request failures are not silently
+ * treated as safety blocks: they still stop the batch for troubleshooting.
+ */
+export function imageFailureAction(provider:Project["imageProvider"],code:unknown):"skip-scene"|"stop-batch"{
+  return provider==="sensenova"&&code==="SENSENOVA_SENSITIVE_IMAGE"?"skip-scene":"stop-batch";
+}
