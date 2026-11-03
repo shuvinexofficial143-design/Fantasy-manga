@@ -7,7 +7,7 @@ import {useState} from "react";
 import {useProject} from "@/components/project-provider";
 import {buildCinematicPrompt,hashString} from "@/lib/cinematic";
 import {novelReferences} from "@/lib/novel-continuity";
-import {imageBatchPendingIds} from "@/lib/image-batch";
+import {imageBatchPendingIds,imageFailureAction} from "@/lib/image-batch";
 import type {CinematicImage,Project} from "@/lib/types";
 
 const IMAGE_MODELS=[
@@ -128,7 +128,7 @@ export default function ImagesPage(){
               working=recordFailure(working,id,reason);
               commit(working);
               const failureCode=(reason as {code?:unknown}|null)?.code;
-              if(failureCode==="SENSENOVA_SENSITIVE_IMAGE"){
+              if(imageFailureAction(working.imageProvider,failureCode)==="skip-scene"){
                 // The provider refused this ONE frame. Save its error and
                 // continue the sequence, including after consecutive refusals.
                 // Never automatically resubmit a rejected request.
