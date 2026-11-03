@@ -57,6 +57,11 @@ export default function ImagesPage(){
     const fullPrompt=buildCinematicPrompt({scene,project:working,previousScene:previous?.image?previous:completedPrevious});
     const prompt=working.imageProvider==="xkiro"?compactXkiroPrompt(fullPrompt):fullPrompt;
     const refs=novelReferences(scene,working,completedPrevious);
+    // Match the actual five-image SenseNova edit limit before posting large data URLs.
+    if(working.imageProvider==="sensenova"){
+      refs.images=refs.images.slice(0,5);
+      refs.labels=refs.labels.slice(0,5);
+    }
     if(working.imageProvider==="xkiro"&&working.imageModel==="openai/gpt-image-2.5"){
       const recent=[...ordered.slice(0,index)].reverse().find((item)=>Boolean(item.image));
       if(recent?.image){refs.images.unshift(recent.image);refs.labels.unshift("Immediate preceding completed scene: prioritize visual continuity");}
@@ -67,9 +72,22 @@ export default function ImagesPage(){
       seed:scene.seed||hashString(working.id+"|"+scene.characterStates.map((state)=>state.characterId).sort().join("|")+"|"+(scene.locationId||"")),
       referenceImages:refs.images,referenceLabels:refs.labels
     })});
-    const data=await response.json() as {image?:string;provider?:string;model?:string;seed?:number;referenceCount?:number;warning?:string;error?:string};
-    if(!response.ok||!data.image)throw new Error(data.error||"Image generation failed.");
-    return {...scene,image:data.image,provider:data.provider,model:data.model,seed:data.seed,referenceCount:data.referenceCount,status:"completed" as const,error:undefined};
+    const data=await response.json() as {image?:string;provider?:string;model?:string;seed?:number;referenceCount?:number;warning?:string;error?:string;code?:string};
+    if(!response.ok||!data.image){
+      const failure=new Error(data.error||"Image generation failed.") as Error&{code?:string};
+      failure.code=data.code;
+      throw failure;
+    }
+    return {...scene,image:data.image,provider:data.provider,model:data.model,seed:data.seed,referenceCount:data.referenceCount,status:"completed" as const,error:undefined,failureCode:undefined};
+  };
+
+  const recordFailure=(working:Project,sceneId:string,reason:unknown):Project=>{
+    const message=reason instanceof Error?reason.message:"Image generation failed.";
+    const rawCode=(reason as {code?:unknown}|null)?.code;
+    const failureCode=typeof rawCode==="string"?rawCode:undefined;
+    return {...working,images:working.images.map((item)=>item.id===sceneId
+      ?{...item,status:"failed" as const,error:message,failureCode}
+      :item),updatedAt:new Date().toISOString()};
   };
 
   const generateOne=async(scene:CinematicImage)=>{
@@ -78,29 +96,54 @@ export default function ImagesPage(){
       const done=await generateScene(scene.id,project)();
       commit({...project,images:project.images.map((item)=>item.id===done.id?done:item),updatedAt:new Date().toISOString()});
       setNotice("Scene "+scene.sceneNumber+" image generated with "+selectedModel.label+".");
-    }catch(reason){setError(reason instanceof Error?reason.message:"Image generation failed.");}
-    finally{setBusy("");setProgress("")}
+    }catch(reason){
+      commit(recordFailure(project,scene.id,reason));
+      setError(reason instanceof Error?reason.message:"Image generation failed.");
+    }finally{setBusy("");setProgress("")}
   };
 
   const generateSequence=async()=>{
     if(!chapter||!scenes.length)return;
     setBusy("sequence");setError("");setNotice("");
     let working=project;
+    let safetySkipped=0;
+    let consecutiveSafetyBlocks=0;
     try{
-      const pendingIds=chapter.sceneIds.filter((id)=>!working.images.find((item)=>item.id===id)?.image);
+      // A provider-blocked scene must be reviewed manually before it is retried.
+      const pendingIds=chapter.sceneIds.filter((id)=>{
+        const item=working.images.find((image)=>image.id===id);
+        return item&&!item.image&&item.failureCode!=="SENSENOVA_SENSITIVE_IMAGE";
+      });
       if(working.imageProvider==="xkiro"||working.imageProvider==="sensenova"){
         for(let offset=0;offset<pendingIds.length;offset+=XKIRO_BATCH_SIZE){
           const batch=pendingIds.slice(offset,offset+XKIRO_BATCH_SIZE);
           setProgress((working.imageProvider==="sensenova"?"SenseNova":"xKiro")+" · "+(offset+1)+" / "+pendingIds.length+" · क्रम से image बन रही है…");
-          const results=await Promise.all(batch.map((id)=>generateScene(id,working)()));
-          working={...working,images:working.images.map((item)=>results.find((done)=>done.id===item.id)||item),updatedAt:new Date().toISOString()};
-          commit(working);
+          for(const id of batch){
+            try{
+              const done=await generateScene(id,working)();
+              working={...working,images:working.images.map((item)=>item.id===done.id?done:item),updatedAt:new Date().toISOString()};
+              commit(working);
+              consecutiveSafetyBlocks=0;
+            }catch(reason){
+              working=recordFailure(working,id,reason);
+              commit(working);
+              const failureCode=(reason as {code?:unknown}|null)?.code;
+              if(failureCode==="SENSENOVA_SENSITIVE_IMAGE"){
+                safetySkipped++;
+                consecutiveSafetyBlocks++;
+                // Two consecutive safety blocks may share a problematic master/style
+                // reference. Pause rather than repeatedly sending it to the provider.
+                if(consecutiveSafetyBlocks>=2){
+                  setError("SenseNova ने लगातार 2 scenes को sensitive image कहकर रोका। Batch सुरक्षित रूप से रोक दी गई है। Failed scenes और reference images जाँचें; बनी images सुरक्षित हैं।");
+                  return;
+                }
+                continue;
+              }
+              throw reason;
+            }
+          }
         }
       }else{
-        // Vertex image generation is network-bound. Generate a small controlled wave in
-        // parallel instead of waiting for every image serially. We start conservatively
-        // and grow to four only after a clean wave; the provider itself still owns 429
-        // retry/backoff, so this speeds healthy projects without flooding Vertex.
         let offset=0;
         let concurrency=Math.min(GEMINI_INITIAL_CONCURRENCY,pendingIds.length);
         while(offset<pendingIds.length){
@@ -112,6 +155,16 @@ export default function ImagesPage(){
           offset+=batch.length;
           if(concurrency<GEMINI_MAX_CONCURRENCY&&offset<pendingIds.length)concurrency=Math.min(GEMINI_MAX_CONCURRENCY,concurrency+1);
         }
+      }
+      const remaining=chapter.sceneIds.filter((id)=>!working.images.find((item)=>item.id===id)?.image);
+      if(remaining.length){
+        const blocked=remaining.filter((id)=>working.images.find((item)=>item.id===id)?.failureCode==="SENSENOVA_SENSITIVE_IMAGE").length;
+        if(blocked){
+          setError(blocked+" scene(s) SenseNova safety check में रुके हैं। बाकी images सुरक्षित हैं। Blocked scenes/प्रयुक्त references की समीक्षा के बाद व्यक्तिगत Retry Image करें।");
+        }else{
+          setNotice(remaining.length+" image(s) अभी बाकी हैं। Generate Remaining से आगे बढ़ाएँ।");
+        }
+        return;
       }
       const state=working.novelImport||novel;
       const chapters=state.chapters.map((item)=>item.number===chapter.number?{...item,status:"generated" as const}:item);
@@ -153,7 +206,7 @@ export default function ImagesPage(){
 
     {scenes.length?<div className="grid gap-5 lg:grid-cols-2">{scenes.map((scene,index)=><article key={scene.id} className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
       <div className="relative aspect-video bg-slate-100">{scene.image?<Image src={scene.image} alt={scene.title} fill unoptimized sizes="(max-width: 1024px) 100vw, 50vw" className="object-cover"/>:<div className="grid h-full place-items-center text-slate-300"><ImageIcon size={38}/></div>}</div>
-      <div className="p-4"><div className="flex items-start justify-between gap-3"><div><div className="text-xs font-black uppercase tracking-wider text-violet-600">Visual {index+1} · Scene {scene.sceneNumber}</div><div className="mt-1 font-black text-slate-900">{scene.title}</div></div><span className="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-black uppercase text-slate-500">{scene.status}</span></div><div className="mt-3 line-clamp-3 text-sm leading-5 text-slate-500">{scene.sourceText}</div>{!scene.image&&<button disabled={!!busy} onClick={()=>void generateOne(scene)} className="mt-4 inline-flex items-center gap-2 rounded-xl bg-slate-900 px-3.5 py-2.5 text-xs font-bold text-white disabled:opacity-50">{busy===scene.id?<Loader2 className="animate-spin" size={14}/>:<Play size={14}/>} Generate Image</button>}</div>
+      <div className="p-4"><div className="flex items-start justify-between gap-3"><div><div className="text-xs font-black uppercase tracking-wider text-violet-600">Visual {index+1} · Scene {scene.sceneNumber}</div><div className="mt-1 font-black text-slate-900">{scene.title}</div></div><span className="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-black uppercase text-slate-500">{scene.status}</span></div><div className="mt-3 line-clamp-3 text-sm leading-5 text-slate-500">{scene.sourceText}</div>{scene.status==="failed"&&scene.error&&<div role="alert" className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-900">{scene.error}</div>}{!scene.image&&<button disabled={!!busy} onClick={()=>void generateOne(scene)} className="mt-4 inline-flex items-center gap-2 rounded-xl bg-slate-900 px-3.5 py-2.5 text-xs font-bold text-white disabled:opacity-50">{busy===scene.id?<Loader2 className="animate-spin" size={14}/>:<Play size={14}/>} {scene.status==="failed"?"Retry Image":"Generate Image"}</button>}</div>
     </article>)}</div>:<section className="rounded-2xl border border-dashed border-slate-300 bg-white p-10 text-center"><ImageIcon className="mx-auto text-slate-300" size={36}/><div className="mt-3 font-black text-slate-700">Generate करने के लिए analyzed visuals नहीं हैं</div><div className="mt-2 text-sm text-slate-500">पहले Story Input page पर chapter analyze करें।</div><Link href="/novel" className="mt-4 inline-block rounded-xl bg-violet-600 px-4 py-2.5 text-sm font-bold text-white">Go to Story Input</Link></section>}
   </div>;
 }
