@@ -3,7 +3,7 @@ import {createImage,createProject} from "./default-project";
 import {novelReferences} from "./novel-continuity";
 
 describe("novel visual anchors",()=>{
-  it("keeps four uploaded style references alongside continuity anchors",()=>{
+  it("prioritizes the immediate frame, then adds uploaded style anchors",()=>{
     const project=createProject();
     project.styleReferences=Array.from({length:4},(_,index)=>({
       id:"style-"+index,
@@ -18,11 +18,11 @@ describe("novel visual anchors",()=>{
     expect(refs.styleCount).toBe(4);
     expect(refs.continuityCount).toBe(1);
     expect(refs.images).toHaveLength(5);
-    expect(refs.labels.slice(0,4).every((label)=>label.includes("style reference"))).toBe(true);
-    expect(refs.labels[4]).toContain("Recent scene 1");
+    expect(refs.labels[0]).toContain("Previous completed scene 1");
+    expect(refs.labels.slice(1).every((label)=>label.includes("style reference"))).toBe(true);
   });
 
-  it("reuses the earliest character and location image plus the immediately previous frame",()=>{
+  it("uses previous completed frames newest-first for motion continuity",()=>{
     const project=createProject();
     const person={id:"hero",name:"Hero",role:"Main",appearance:"Black hair",outfit:"Blue coat"};
     project.characters=[person];
@@ -33,8 +33,8 @@ describe("novel visual anchors",()=>{
     const third=createImage(3,"Hero moves",first.characterStates);third.locationId="hall";
     project.images=[first,second,third];
     const refs=novelReferences(third,project,second);
-    expect(refs.images).toEqual([first.image,second.image]);
-    expect(refs.labels[0]).toContain("Hero");
-    expect(refs.labels[1]).toContain("Recent scene 2");
+    expect(refs.images).toEqual([second.image,first.image]);
+    expect(refs.labels[0]).toContain("Previous completed scene 2");
+    expect(refs.labels[1]).toContain("Previous completed scene 1");
   });
 });

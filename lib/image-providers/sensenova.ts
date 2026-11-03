@@ -2,6 +2,38 @@ import type {ImageGenerationInput} from "./types";
 import sharp from "sharp";
 
 const BASE_URL="https://token.sensenova.ai/v1";
+
+// Keep provider safety decisions distinct from malformed requests and transport errors.
+// A content-safety rejection must never trigger an automatic retry with fewer references.
+export class SenseNovaRequestError extends Error {
+  constructor(
+    message:string,
+    public readonly statusCode:number,
+    public readonly code:string
+  ){super(message);this.name="SenseNovaRequestError"}
+}
+
+export function classifySenseNovaError(status:number,responseBody:string):SenseNovaRequestError{
+  let details:{error?:{message?:unknown;code?:unknown}}|null=null;
+  try{details=JSON.parse(responseBody) as {error?:{message?:unknown;code?:unknown}}}catch{/* Non-JSON error from the provider. */}
+  const message=typeof details?.error?.message==="string"?details.error.message:"";
+  const providerCode=String(details?.error?.code??"");
+  if(status===400&&(providerCode==="18"||/sensitive image/i.test(message))){
+    return new SenseNovaRequestError(
+      "SenseNova ने इस scene की image या reference को sensitive बताकर रोक दिया (400, code 18)। Scene content और reference images की समीक्षा करें। इस request को अपने आप दोबारा नहीं भेजा जाएगा।",
+      400,"SENSENOVA_SENSITIVE_IMAGE"
+    );
+  }
+  const shortDetail=(message||responseBody).replace(/\s+/g," ").slice(0,240);
+  if(status===400)return new SenseNovaRequestError(
+    "SenseNova ने image request अस्वीकार की (400)"+(shortDetail?": "+shortDetail:"")+". Input या reference format जाँचें।",
+    400,"SENSENOVA_INVALID_REQUEST"
+  );
+  return new SenseNovaRequestError(
+    "SenseNova "+(status===429?"rate limit":"image request")+" failed ("+status+")"+(shortDetail?": "+shortDetail:""),
+    status,status===429?"SENSENOVA_RATE_LIMIT":"SENSENOVA_PROVIDER_ERROR"
+  );
+}
 export function senseNovaConfigured(){return Boolean(process.env.SENSENOVA_API_KEY?.trim())}
 
 async function normalizeReference(value:string,index:number){
@@ -65,9 +97,8 @@ export async function generateSenseNovaImage(input:ImageGenerationInput){
     cache:"no-store"
   });
   if(!response.ok){
-    const detail=(await response.text().catch(()=>"")).slice(0,350);
-    if(response.status===400)throw new Error("SenseNova ने request अस्वीकार की (400): "+detail+"। अधिकतम 5 references और 4800-character prompt लागू हैं।");
-    throw new Error("SenseNova "+(refs.length?"reference editing":"generation")+" failed ("+response.status+"): "+detail);
+    const detail=(await response.text().catch(()=>"")).slice(0,600);
+    throw classifySenseNovaError(response.status,detail);
   }
   const result=await response.json() as {data?:Array<{url?:string;b64_json?:string}>};
   const item=result.data?.[0];

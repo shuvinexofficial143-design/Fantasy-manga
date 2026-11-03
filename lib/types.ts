@@ -105,6 +105,7 @@ export type CinematicImage={
   referenceCount?:number;
   status:"idle"|"generating"|"completed"|"failed";
   error?:string;
+  failureCode?:string;
   locationId?:string;
   cameraShot:string;
   cameraAngle:string;
