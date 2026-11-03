@@ -61,7 +61,7 @@ const PROMPT_LIMIT=4800;
 function compactSenseNovaPrompt(full:string){
   if(full.length<=PROMPT_LIMIT)return full;
   const blocks=full.split(/\n\s*\n/).map((part)=>part.trim()).filter(Boolean);
-  const priorities=["CURRENT STORY MOMENT","CHARACTER BIBLE","CURRENT LOCATION","CAMERA CONTINUITY","CURRENT CONTINUITY NOTES","MASTER ART-DIRECTION LOCK","COMPOSITION","ABSOLUTE LAYOUT RULE","Generate exactly ONE"];
+  const priorities=["MASTER ART-DIRECTION LOCK","COLOR CONSISTENCY","CURRENT STORY MOMENT","CHARACTER BIBLE","CURRENT LOCATION","CAMERA CONTINUITY","UPLOADED STYLE REFERENCE PACK","CONTINUITY STRENGTH","PREVIOUS SCENE STATE","COMPOSITION","LAYOUT","Generate exactly ONE"];
   const ranked=[...blocks].sort((a,b)=>{
     const rank=(value:string)=>{const i=priorities.findIndex((prefix)=>value.startsWith(prefix));return i<0?priorities.length:i};
     return rank(a)-rank(b);

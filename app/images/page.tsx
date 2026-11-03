@@ -7,8 +7,7 @@ import {useState} from "react";
 import {useProject} from "@/components/project-provider";
 import {buildCinematicPrompt,hashString} from "@/lib/cinematic";
 import {novelReferences} from "@/lib/novel-continuity";
-import {imageBatchPendingIds} from "@/lib/image-batch";
-import {nonGraphicVisualBeat,shouldStartNonGraphic} from "@/lib/non-graphic-visual";
+import {imageBatchPendingIds,imageFailureAction} from "@/lib/image-batch";
 import type {CinematicImage,Project} from "@/lib/types";
 
 const IMAGE_MODELS=[
@@ -49,20 +48,17 @@ export default function ImagesPage(){
 
   const commit=(next:Project)=>setState((current)=>({...current,projects:current.projects.map((item)=>item.id===next.id?next:item)}));
 
-  const generateScene=(sceneId:string,working:Project,requestNonGraphic=false)=>async()=>{
+  const generateScene=(sceneId:string,working:Project)=>async()=>{
     const ordered=[...working.images].sort((a,b)=>a.sceneNumber-b.sceneNumber);
     const index=ordered.findIndex((item)=>item.id===sceneId);
     if(index<0)throw new Error("Scene not found.");
     const scene=ordered[index],previous=index>0?ordered[index-1]:undefined;
     // Missing previous frames must not deadlock a chapter: use the nearest available completed frame.
     const completedPrevious=[...ordered.slice(0,index)].reverse().find((item)=>Boolean(item.image));
-    // Proactive storyboard framing for overtly violent new beats; blocked scenes
-    // require an explicit person-triggered non-graphic retry instead.
-    const nonGraphic=requestNonGraphic||(working.imageProvider==="sensenova"
-      &&scene.failureCode!=="SENSENOVA_SENSITIVE_IMAGE"&&shouldStartNonGraphic(scene.sourceText));
+    // buildCinematicPrompt now adjusts sensitive visual descriptions BEFORE the
+    // API request while preserving project colors, reference identity and style.
     const fullPrompt=buildCinematicPrompt({
-      scene,project:working,previousScene:previous?.image?previous:completedPrevious,
-      visualBeat:nonGraphic?nonGraphicVisualBeat(scene.sourceText):undefined
+      scene,project:working,previousScene:previous?.image?previous:completedPrevious
     });
     const prompt=working.imageProvider==="xkiro"?compactXkiroPrompt(fullPrompt):fullPrompt;
     const refs=novelReferences(scene,working,completedPrevious);
@@ -87,7 +83,7 @@ export default function ImagesPage(){
       failure.code=data.code;
       throw failure;
     }
-    return {...scene,image:data.image,provider:data.provider,model:data.model,seed:data.seed,referenceCount:data.referenceCount,status:"completed" as const,error:undefined,failureCode:undefined,visualTreatment:nonGraphic?"non-graphic" as const:"standard" as const};
+    return {...scene,image:data.image,provider:data.provider,model:data.model,seed:data.seed,referenceCount:data.referenceCount,status:"completed" as const,error:undefined,failureCode:undefined};
   };
 
   const recordFailure=(working:Project,sceneId:string,reason:unknown):Project=>{
@@ -99,58 +95,15 @@ export default function ImagesPage(){
       :item),updatedAt:new Date().toISOString()};
   };
 
-  const generateOne=async(scene:CinematicImage,requestNonGraphic=false)=>{
+  const generateOne=async(scene:CinematicImage)=>{
     setBusy(scene.id);setError("");setNotice("");
     try{
-      const done=await generateScene(scene.id,project,requestNonGraphic)();
+      const done=await generateScene(scene.id,project)();
       commit({...project,images:project.images.map((item)=>item.id===done.id?done:item),updatedAt:new Date().toISOString()});
-      setNotice("Scene "+scene.sceneNumber+" image generated with "+selectedModel.label+(done.visualTreatment==="non-graphic"?" · non-graphic visual":"")+".");
+      setNotice("Scene "+scene.sceneNumber+" image generated with "+selectedModel.label+".");
     }catch(reason){
       commit(recordFailure(project,scene.id,reason));
       setError(reason instanceof Error?reason.message:"Image generation failed.");
-    }finally{setBusy("");setProgress("")}
-  };
-
-  const retryBlockedNonGraphic=async()=>{
-    if(!chapter||project.imageProvider!=="sensenova")return;
-    const blockedIds=chapter.sceneIds.filter((id)=>{
-      const scene=project.images.find((item)=>item.id===id);
-      return scene&&!scene.image&&scene.failureCode==="SENSENOVA_SENSITIVE_IMAGE";
-    });
-    if(!blockedIds.length)return;
-    setBusy("non-graphic");setError("");setNotice("");
-    let working=project;
-    let completed=0;
-    try{
-      for(const [index,id] of blockedIds.entries()){
-        setProgress("Non-graphic cinematic image · "+(index+1)+" / "+blockedIds.length);
-        try{
-          const done=await generateScene(id,working,true)();
-          working={...working,images:working.images.map((item)=>item.id===id?done:item),updatedAt:new Date().toISOString()};
-          commit(working);
-          completed++;
-        }catch(reason){
-          working=recordFailure(working,id,reason);
-          commit(working);
-          const code=(reason as {code?:unknown}|null)?.code;
-          if(code==="SENSENOVA_SENSITIVE_IMAGE"){
-            setError("Non-graphic image भी SenseNova ने अस्वीकार की। इसी request को बार-बार नहीं भेजेंगे। References / character master की समीक्षा करें। "+completed+" नई images सुरक्षित हैं।");
-            return;
-          }
-          throw reason;
-        }
-      }
-      const allReady=chapter.sceneIds.every((id)=>Boolean(working.images.find((item)=>item.id===id)?.image));
-      if(allReady){
-        const state=working.novelImport||novel;
-        working={...working,novelImport:{...state,chapters:state.chapters.map((item)=>item.number===chapter.number?{...item,status:"generated" as const}:item)},updatedAt:new Date().toISOString()};
-        commit(working);
-        setNotice("Chapter "+chapter.number+" की सभी images complete हैं। Non-graphic visual के लिए original chapter text नहीं बदला।");
-      }else{
-        setNotice(completed+" blocked scene(s) non-graphic visual के रूप में बनीं। अब Generate Remaining से बाकी scenes बनाएँ।");
-      }
-    }catch(reason){
-      setError("Non-graphic retry रुका: "+(reason instanceof Error?reason.message:"Generation failed")+". पहले बनी images सुरक्षित हैं।");
     }finally{setBusy("");setProgress("")}
   };
 
@@ -158,7 +111,7 @@ export default function ImagesPage(){
     if(!chapter||!scenes.length)return;
     setBusy("sequence");setError("");setNotice("");
     let working=project;
-    let consecutiveSafetyBlocks=0;
+    let skippedSensitive=0;
     try{
       // A provider-blocked scene must be reviewed manually before it is retried.
       const pendingIds=imageBatchPendingIds(chapter.sceneIds,working.images,working.imageProvider);
@@ -171,19 +124,16 @@ export default function ImagesPage(){
               const done=await generateScene(id,working)();
               working={...working,images:working.images.map((item)=>item.id===done.id?done:item),updatedAt:new Date().toISOString()};
               commit(working);
-              consecutiveSafetyBlocks=0;
             }catch(reason){
               working=recordFailure(working,id,reason);
               commit(working);
               const failureCode=(reason as {code?:unknown}|null)?.code;
-              if(failureCode==="SENSENOVA_SENSITIVE_IMAGE"){
-                consecutiveSafetyBlocks++;
-                // Two consecutive safety blocks may share a problematic master/style
-                // reference. Pause rather than repeatedly sending it to the provider.
-                if(consecutiveSafetyBlocks>=2){
-                  setError("SenseNova ने लगातार 2 scenes को sensitive image कहकर रोका। Batch सुरक्षित रूप से रोक दी गई है। Failed scenes और reference images जाँचें; बनी images सुरक्षित हैं।");
-                  return;
-                }
+              if(imageFailureAction(working.imageProvider,failureCode)==="skip-scene"){
+                // The provider refused this ONE frame. Save its error and
+                // continue the sequence, including after consecutive refusals.
+                // Never automatically resubmit a rejected request.
+                skippedSensitive++;
+                setProgress("SenseNova skipped "+skippedSensitive+" sensitive scene(s). अगली image जारी है…");
                 continue;
               }
               throw reason;
@@ -207,7 +157,7 @@ export default function ImagesPage(){
       if(remaining.length){
         const blocked=remaining.filter((id)=>working.images.find((item)=>item.id===id)?.failureCode==="SENSENOVA_SENSITIVE_IMAGE").length;
         if(blocked){
-          setError(blocked+" scene(s) SenseNova safety check में रुके हैं। बाकी images सुरक्षित हैं। Blocked scenes/प्रयुक्त references की समीक्षा के बाद व्यक्तिगत Retry Image करें।");
+          setError(blocked+" scene(s) SenseNova safety check में skip हुए। बाकी scenes की generation जारी रखी गई और तैयार images सुरक्षित हैं। इन failed scenes के लिए जरूरत हो तो Retry Image इस्तेमाल करें।");
         }else{
           setNotice(remaining.length+" image(s) अभी बाकी हैं। Generate Remaining से आगे बढ़ाएँ।");
         }
@@ -223,7 +173,6 @@ export default function ImagesPage(){
     }finally{setBusy("");setProgress("")}
   };
 
-  const blockedSceneCount=scenes.filter((scene)=>!scene.image&&scene.failureCode==="SENSENOVA_SENSITIVE_IMAGE").length;
   const remainingUnblocked=imageBatchPendingIds(chapter?.sceneIds||[],project.images,project.imageProvider).length;
   const ready=scenes.filter((scene)=>Boolean(scene.image)).length;
   const styleReferenceCount=(project.styleReferences||[]).length;
@@ -235,7 +184,7 @@ export default function ImagesPage(){
           <div><div className="text-xs font-black uppercase tracking-[.2em] text-fuchsia-600">Image Generation</div><h1 className="mt-2 text-3xl font-black">Images</h1><p className="mt-2 text-sm leading-6 text-slate-500">{chapter?"Chapter "+chapter.number+" · "+ready+" / "+scenes.length+" images ready":"कोई active chapter नहीं है।"}</p></div>
           <div className="flex flex-wrap gap-2">
             <Link href="/references" className="inline-flex items-center justify-center gap-2 rounded-xl border border-fuchsia-200 bg-fuchsia-50 px-4 py-2.5 text-sm font-black text-fuchsia-700"><Palette size={16}/> References {styleReferenceCount}/4</Link>
-            {remainingUnblocked>0&&<button disabled={!!busy} onClick={()=>void generateSequence()} className="inline-flex items-center justify-center gap-2 rounded-xl bg-violet-600 px-4 py-2.5 text-sm font-black text-white disabled:opacity-50"><Sparkles size={16}/> Generate Remaining</button>}{project.imageProvider==="sensenova"&&blockedSceneCount>0&&<button disabled={!!busy} onClick={()=>void retryBlockedNonGraphic()} className="inline-flex items-center justify-center gap-2 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-black text-white disabled:opacity-50"><Sparkles size={16}/> Generate Blocked Non-Graphic ({blockedSceneCount})</button>}
+            {remainingUnblocked>0&&<button disabled={!!busy} onClick={()=>void generateSequence()} className="inline-flex items-center justify-center gap-2 rounded-xl bg-violet-600 px-4 py-2.5 text-sm font-black text-white disabled:opacity-50"><Sparkles size={16}/> Generate Remaining</button>}
           </div>
         </div>
         <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
@@ -255,7 +204,7 @@ export default function ImagesPage(){
 
     {scenes.length?<div className="grid gap-5 lg:grid-cols-2">{scenes.map((scene,index)=><article key={scene.id} className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
       <div className="relative aspect-video bg-slate-100">{scene.image?<Image src={scene.image} alt={scene.title} fill unoptimized sizes="(max-width: 1024px) 100vw, 50vw" className="object-cover"/>:<div className="grid h-full place-items-center text-slate-300"><ImageIcon size={38}/></div>}</div>
-      <div className="p-4"><div className="flex items-start justify-between gap-3"><div><div className="text-xs font-black uppercase tracking-wider text-violet-600">Visual {index+1} · Scene {scene.sceneNumber}</div><div className="mt-1 font-black text-slate-900">{scene.title}</div></div><span className="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-black uppercase text-slate-500">{scene.status}</span></div><div className="mt-3 line-clamp-3 text-sm leading-5 text-slate-500">{scene.sourceText}</div>{scene.status==="failed"&&scene.error&&<div role="alert" className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-900">{scene.error}{scene.failureCode==="SENSENOVA_SENSITIVE_IMAGE"&&<div className="mt-2 border-t border-amber-200 pt-2"><strong>References in request:</strong> {novelReferences(scene,project).labels.slice(0,5).join(" · ")||"No reference images"}<p className="mt-2">Non-graphic visual चुनने पर मूल कहानी नहीं बदलेगी। अगर reference image ही rejected हो, तो References में जाकर उसकी समीक्षा करनी होगी।</p><Link href="/references" className="mt-2 inline-block font-bold underline">Review References</Link></div>}</div>}{!scene.image&&<button disabled={!!busy} onClick={()=>void generateOne(scene,scene.failureCode==="SENSENOVA_SENSITIVE_IMAGE")} className="mt-4 inline-flex items-center gap-2 rounded-xl bg-slate-900 px-3.5 py-2.5 text-xs font-bold text-white disabled:opacity-50">{busy===scene.id?<Loader2 className="animate-spin" size={14}/>:<Play size={14}/>} {scene.failureCode==="SENSENOVA_SENSITIVE_IMAGE"?"Generate Non-Graphic Image":scene.status==="failed"?"Retry Image":"Generate Image"}</button>}{scene.image&&scene.visualTreatment==="non-graphic"&&<p className="mt-2 text-xs text-slate-500">Non-graphic cinematic framing · original story unchanged</p>}</div>
+      <div className="p-4"><div className="flex items-start justify-between gap-3"><div><div className="text-xs font-black uppercase tracking-wider text-violet-600">Visual {index+1} · Scene {scene.sceneNumber}</div><div className="mt-1 font-black text-slate-900">{scene.title}</div></div><span className="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-black uppercase text-slate-500">{scene.status}</span></div><div className="mt-3 line-clamp-3 text-sm leading-5 text-slate-500">{scene.sourceText}</div>{scene.status==="failed"&&scene.error&&<div role="alert" className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-900">{scene.error}{scene.failureCode==="SENSENOVA_SENSITIVE_IMAGE"&&<div className="mt-2 border-t border-amber-200 pt-2"><strong>Reference roles:</strong> {novelReferences(scene,project).labels.slice(0,5).join(" · ")||"No reference images"}<p className="mt-2">यह scene skip हुआ है। अगली images Generate Remaining से बनेंगी। जरूरत पड़ने पर सिर्फ इस scene को Retry Image से फिर चलाएँ।</p><Link href="/references" className="mt-2 inline-block font-bold underline">Review References</Link></div>}</div>}{!scene.image&&<button disabled={!!busy} onClick={()=>void generateOne(scene)} className="mt-4 inline-flex items-center gap-2 rounded-xl bg-slate-900 px-3.5 py-2.5 text-xs font-bold text-white disabled:opacity-50">{busy===scene.id?<Loader2 className="animate-spin" size={14}/>:<Play size={14}/>} {scene.status==="failed"?"Retry Image":"Generate Image"}</button>}</div>
     </article>)}</div>:<section className="rounded-2xl border border-dashed border-slate-300 bg-white p-10 text-center"><ImageIcon className="mx-auto text-slate-300" size={36}/><div className="mt-3 font-black text-slate-700">Generate करने के लिए analyzed visuals नहीं हैं</div><div className="mt-2 text-sm text-slate-500">पहले Story Input page पर chapter analyze करें।</div><Link href="/novel" className="mt-4 inline-block rounded-xl bg-violet-600 px-4 py-2.5 text-sm font-bold text-white">Go to Story Input</Link></section>}
   </div>;
 }
