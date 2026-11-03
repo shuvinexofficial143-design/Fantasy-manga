@@ -106,13 +106,12 @@ export default function ImagesPage(){
     if(!chapter||!scenes.length)return;
     setBusy("sequence");setError("");setNotice("");
     let working=project;
-    let safetySkipped=0;
     let consecutiveSafetyBlocks=0;
     try{
       // A provider-blocked scene must be reviewed manually before it is retried.
       const pendingIds=chapter.sceneIds.filter((id)=>{
         const item=working.images.find((image)=>image.id===id);
-        return item&&!item.image&&item.failureCode!=="SENSENOVA_SENSITIVE_IMAGE";
+        return item&&!item.image&&!(working.imageProvider==="sensenova"&&item.failureCode==="SENSENOVA_SENSITIVE_IMAGE");
       });
       if(working.imageProvider==="xkiro"||working.imageProvider==="sensenova"){
         for(let offset=0;offset<pendingIds.length;offset+=XKIRO_BATCH_SIZE){
@@ -129,7 +128,6 @@ export default function ImagesPage(){
               commit(working);
               const failureCode=(reason as {code?:unknown}|null)?.code;
               if(failureCode==="SENSENOVA_SENSITIVE_IMAGE"){
-                safetySkipped++;
                 consecutiveSafetyBlocks++;
                 // Two consecutive safety blocks may share a problematic master/style
                 // reference. Pause rather than repeatedly sending it to the provider.
