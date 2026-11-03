@@ -140,7 +140,15 @@ export default function ImagesPage(){
           throw reason;
         }
       }
-      setNotice(completed+" blocked scene(s) non-graphic visual के रूप में बनीं। अब Generate Remaining से बाकी scenes बनाएँ।");
+      const allReady=chapter.sceneIds.every((id)=>Boolean(working.images.find((item)=>item.id===id)?.image));
+      if(allReady){
+        const state=working.novelImport||novel;
+        working={...working,novelImport:{...state,chapters:state.chapters.map((item)=>item.number===chapter.number?{...item,status:"generated" as const}:item)},updatedAt:new Date().toISOString()};
+        commit(working);
+        setNotice("Chapter "+chapter.number+" की सभी images complete हैं। Non-graphic visual के लिए original chapter text नहीं बदला।");
+      }else{
+        setNotice(completed+" blocked scene(s) non-graphic visual के रूप में बनीं। अब Generate Remaining से बाकी scenes बनाएँ।");
+      }
     }catch(reason){
       setError("Non-graphic retry रुका: "+(reason instanceof Error?reason.message:"Generation failed")+". पहले बनी images सुरक्षित हैं।");
     }finally{setBusy("");setProgress("")}
