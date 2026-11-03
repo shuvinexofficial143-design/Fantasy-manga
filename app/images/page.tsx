@@ -83,7 +83,7 @@ export default function ImagesPage(){
       failure.code=data.code;
       throw failure;
     }
-    return {...scene,image:data.image,provider:data.provider,model:data.model,seed:data.seed,referenceCount:data.referenceCount,status:"completed" as const,error:undefined,failureCode:undefined,visualTreatment:undefined};
+    return {...scene,image:data.image,provider:data.provider,model:data.model,seed:data.seed,referenceCount:data.referenceCount,status:"completed" as const,error:undefined,failureCode:undefined};
   };
 
   const recordFailure=(working:Project,sceneId:string,reason:unknown):Project=>{
