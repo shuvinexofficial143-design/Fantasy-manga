@@ -70,6 +70,7 @@ export function buildCinematicPrompt({scene,project,previousScene}:{scene:Cinema
     styleReferenceCount?`UPLOADED STYLE REFERENCE PACK: ${Math.min(styleReferenceCount,4)} project style reference image(s) are attached for facial-design language, rendering, lighting, palette, atmosphere, material details and cinematic finish. Do not copy their unrelated subjects or composition.`:"",
     !adjusted&&project.worldNotes?`WORLD BIBLE: ${safeDetail(project.worldNotes,"preserve the established fantasy world")}`:"",
     `CURRENT STORY MOMENT: ${visual.moment}`,
+    scene.visualSafetyPlan?.coverInstruction?`SAFE VISUAL COMPOSITION: ${safeDetail(scene.visualSafetyPlan.coverInstruction,"Use intact clothing and a safe reaction shot")}`:"",
     `CURRENT LOCATION: ${location
       ?adjusted?`${safeDetail(location.name,"established setting")}; lighting=${safeDetail(location.lighting,"atmospheric lighting")}; preserve established architecture and landmarks`:
         safeDetail(`${location.name} — ${location.description}; lighting=${location.lighting}; locked facts=${location.continuityNotes||"preserve architecture and landmark placement"}`,"Preserve established architecture, landmarks and atmospheric lighting")

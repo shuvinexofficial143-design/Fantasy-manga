@@ -101,6 +101,9 @@ type GenerateVertexTextOptions={
   seed?:number;
   maxOutputTokens?:number;
   model?:string;
+  images?:Array<{mimeType:string;data:string}>;
+  timeoutMs?:number;
+  thinkingLevel?:"minimal"|"low"|"medium"|"high";
 };
 
 export async function generateVertexText(prompt:string,options:GenerateVertexTextOptions={}){
@@ -117,7 +120,7 @@ export async function generateVertexText(prompt:string,options:GenerateVertexTex
 
   const region=location();
   const model=options.model?.trim()||process.env.GEMINI_STORY_MODEL?.trim()||"gemini-3.1-pro-preview";
-  const timeoutMs=Math.max(10000,Number(process.env.VERTEX_STORY_TIMEOUT_MS||120000));
+  const timeoutMs=options.timeoutMs??Math.max(10000,Number(process.env.VERTEX_STORY_TIMEOUT_MS||120000));
   const host=region==="global"?"aiplatform.googleapis.com":`${region}-aiplatform.googleapis.com`;
   const url=new URL(
     `https://${host}/v1/projects/${encodeURIComponent(project)}/locations/${encodeURIComponent(region)}/publishers/google/models/${encodeURIComponent(model)}:generateContent`
@@ -131,10 +134,11 @@ export async function generateVertexText(prompt:string,options:GenerateVertexTex
     method:"POST",
     headers,
     body:JSON.stringify({
-      contents:[{role:"user",parts:[{text:prompt}]}],
+      contents:[{role:"user",parts:[{text:prompt},...(options.images||[]).map((inlineData)=>({inlineData}))]}],
       generationConfig:{
         temperature:options.temperature??0.2,
         candidateCount:1,
+        ...(options.thinkingLevel?{thinkingConfig:{thinkingLevel:options.thinkingLevel}}:{}),
         responseMimeType:"application/json",
         ...(Number.isFinite(options.seed)?{seed:Math.max(1,Math.min(2147483647,Math.trunc(options.seed!)))}:{}),
         ...(Number.isFinite(options.maxOutputTokens)?{maxOutputTokens:Math.max(256,Math.trunc(options.maxOutputTokens!))}:{})
@@ -152,8 +156,10 @@ export async function generateVertexText(prompt:string,options:GenerateVertexTex
   }
 
   const payload=await response.json() as {
-    candidates?:Array<{content?:{parts?:Array<{text?:string}>}}>
+    promptFeedback?:{blockReason?:string};
+    candidates?:Array<{finishReason?:string;content?:{parts?:Array<{text?:string}>}}>
   };
+  if(payload.promptFeedback?.blockReason||payload.candidates?.some((candidate)=>["SAFETY","PROHIBITED_CONTENT","BLOCKLIST","IMAGE_SAFETY"].includes(candidate.finishReason||"")))throw Object.assign(new Error("Vertex content safety blocked this request."),{code:"VERTEX_CONTENT_BLOCKED"});
   const output=payload.candidates
     ?.flatMap((candidate)=>candidate.content?.parts||[])
     .map((part)=>part.text||"")

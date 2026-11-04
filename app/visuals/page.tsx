@@ -15,6 +15,7 @@ export default function VisualsPage(){
   const scenes=(chapter?.sceneIds||[]).map((id)=>project.images.find((image)=>image.id===id)).filter((image):image is typeof project.images[number]=>Boolean(image));
 
   const promptFor=(scene:typeof project.images[number])=>{
+    if(scene.safetyReport&&scene.prompt)return scene.prompt;
     const index=ordered.findIndex((item)=>item.id===scene.id);
     const previous=index>0?ordered[index-1]:undefined;
     return buildCinematicPrompt({scene,project,previousScene:previous});
@@ -56,9 +57,10 @@ export default function VisualsPage(){
         <div className="text-[11px] font-black uppercase tracking-wider text-slate-400">Story Moment</div>
         <div className="mt-2 text-sm leading-6 text-slate-700">{scene.sourceText}</div>
       </div>
+      {scene.visualDescription&&<div className="mt-3 rounded-xl border border-violet-100 bg-violet-50 p-4 text-sm leading-6 text-violet-900"><b>Planned safe visual:</b> {scene.visualDescription}{scene.visualSafetyPlan?.coverInstruction&&<p className="mt-2"><b>Composition:</b> {scene.visualSafetyPlan.coverInstruction}</p>}<p className="mt-2 text-xs">यह analysis का visual plan है। Final prompt, references और बनी image की अलग जाँच generation के समय होगी।</p></div>}
       <details className="mt-3 rounded-xl border border-slate-200">
-        <summary className="cursor-pointer px-4 py-3 text-sm font-bold text-slate-700">Open final image prompt</summary>
-        <pre className="max-h-96 overflow-auto whitespace-pre-wrap border-t border-slate-200 p-4 font-sans text-xs leading-5 text-slate-600">{promptFor(scene)}</pre>
+        <summary className="cursor-pointer px-4 py-3 text-sm font-bold text-slate-700">Open image prompt{scene.safetyReport?" · generation review complete":" · checked again before generation"}</summary>
+        <pre className="max-h-96 overflow-auto whitespace-pre-wrap border-t border-slate-200 p-4 font-sans text-xs leading-5 text-slate-600">{scene.safetyReport?scene.prompt:promptFor(scene)}</pre>
       </details>
     </article>)}</div>:<section className="rounded-2xl border border-dashed border-slate-300 bg-white p-10 text-center">
       <ScanSearch className="mx-auto text-slate-300" size={34}/>

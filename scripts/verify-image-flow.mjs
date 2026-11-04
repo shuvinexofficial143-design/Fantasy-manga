@@ -28,17 +28,20 @@ try{
   if(request.url().endsWith('/api/image-models'))return request.respond({status:200,contentType:'application/json',body:JSON.stringify({configured:{sensenova:true,gemini:false,xkiro:false}})});
   if(request.url().endsWith('/api/generate')){
    requests.push(JSON.parse(request.postData()));
-   if(rejectNext){rejectNext=false;return request.respond({status:422,contentType:'application/json',body:JSON.stringify({error:'SenseNova sensitive scene; review visual and references.',code:'SENSENOVA_SENSITIVE_IMAGE',retryable:false})})}
-   return request.respond({status:200,contentType:'application/json',body:JSON.stringify({image,provider:'sensenova',model:'sensenova-u1.5-lite',seed:1,referenceCount:requests.at(-1).referenceImages.length})});
+   if(rejectNext){rejectNext=false;return request.respond({status:422,contentType:'application/json',body:JSON.stringify({error:'Visual review blocked this scene; review visual and references.',code:'VISUAL_PREFLIGHT_BLOCKED',retryable:false})})}
+   return request.respond({status:200,contentType:'application/json',body:JSON.stringify({image,provider:'sensenova',model:'sensenova-u1.5-lite',seed:1,referenceCount:requests.at(-1).referenceImages.length,effectivePrompt:requests.at(-1).prompt,safety:{promptChecked:true,promptAdjusted:true,referencesChecked:requests.at(-1).referenceImages.length,outputChecked:true,redactedRegions:1,coverMode:'flowers',checkedAt:stamp}})});
   }
   return request.continue();
  });
  await page.goto(origin+'/images',{waitUntil:'networkidle0'});
  await page.waitForFunction(()=>document.body.innerText.includes('Chapter 2'));
  const clickText=async text=>{const handle=await page.evaluateHandle(text=>[...document.querySelectorAll('button')].find(button=>button.textContent.includes(text)),text);assert.ok(handle.asElement(),text+' exists');await handle.asElement().click();await handle.dispose()};
+ await page.select('select:has(option[value=flowers])','flowers');
  await clickText('Generate Remaining');
  await page.waitForFunction(()=>document.body.innerText.includes('3 / 4 images ready'));
  assert.equal(requests.length,3,'batch continued after safety rejection');
+ assert.ok(requests.every(request=>request.visualCoverMode==='flowers'));
+ await page.waitForFunction(()=>document.body.innerText.includes('1 region(s) covered'));
  assert.ok(requests.every(body=>!body.prompt.includes('thrust a sword')),'final outbound prompts are non-graphic');
  const saved=async()=>page.evaluate(()=>new Promise((resolve,reject)=>{const r=indexedDB.open('fantasy-cinematic-studio',1);r.onsuccess=()=>{const db=r.result,q=db.transaction('projects','readonly').objectStore('projects').get('current');q.onsuccess=()=>{db.close();resolve(q.result.projects[0])};q.onerror=reject};r.onerror=reject}));
  await page.waitForFunction(()=>!document.querySelector('button[disabled]'));
@@ -56,7 +59,7 @@ try{
  await toggles[2].click(); // no automatic character/previous-frame references
  await page.waitForFunction(()=>new Promise(resolve=>{const r=indexedDB.open('fantasy-cinematic-studio',1);r.onsuccess=()=>{const db=r.result,q=db.transaction('projects','readonly').objectStore('projects').get('current');q.onsuccess=()=>{const p=q.result.projects[0];db.close();resolve(p.useStylePreset===false&&p.useContinuityReferences===false&&p.styleReferences.length===1)}}}));
  await page.reload({waitUntil:'networkidle0'});
- const restored=await saved();assert.equal(restored.images.filter(s=>s.image).length,4);assert.equal(restored.imageStylePreset,'anime-2d');assert.equal(restored.useStylePreset,false);assert.equal(restored.useStyleReferences,true);assert.equal(restored.useContinuityReferences,false);assert.equal(restored.images[1].sourceText,scenes[1].sourceText);
+ const restored=await saved();assert.equal(restored.images.filter(s=>s.image).length,4);assert.equal(restored.imageStylePreset,'anime-2d');assert.equal(restored.useStylePreset,false);assert.equal(restored.useStyleReferences,true);assert.equal(restored.visualCoverMode,'flowers');assert.equal(restored.useContinuityReferences,false);assert.equal(restored.images[1].sourceText,scenes[1].sourceText);
  const overflow=await page.evaluate(()=>document.documentElement.scrollWidth>window.innerWidth);assert.equal(overflow,false,'mobile layout does not overflow');
  if(process.env.TEST_SCREENSHOT)await page.screenshot({path:process.env.TEST_SCREENSHOT,fullPage:true});
  assert.deepEqual(errors,[]);

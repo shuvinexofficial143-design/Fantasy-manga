@@ -36,7 +36,7 @@ export function planSceneVisual(sourceText:string):SceneVisualPlan{
   if(intimateContent.test(source)){
     return {
       adjusted:true,reason:"intimate-content",
-      moment:`Show a tasteful emotional conversation between fully clothed adult characters in the established location. Use facial expression, respectful distance, naturally layered fabric and soft atmospheric lighting to express the narrative relationship. Keep the existing facial designs, costumes and full-color cinematic art direction.`
+      moment:`Show a neutral, non-intimate conversation between fully clothed established characters in the established location. Preserve their original ages and identities. Use facial expression, respectful distance, naturally layered fabric and soft atmospheric lighting to express the narrative relationship. Keep the existing facial designs, costumes and full-color cinematic art direction.`
     };
   }
   if(graphicAction.test(source)||violentHindi.test(source)||distressingDetail.test(source)){

@@ -1,3 +1,6 @@
+export type VisualCoverMode="auto"|"blur"|"flowers"|"cover";
+export type VisualSafetyReport={promptChecked:true;promptAdjusted:boolean;referencesChecked:number;outputChecked:true;redactedRegions:number;coverMode:VisualCoverMode;checkedAt:string};
+export type VisualSafetyPlan={adapted:boolean;coverInstruction:string;reason:string};
 export type ReferenceImage={id:string;name:string;dataUrl:string};
 export type VisualDensity="standard"|"highest"|"ultra";
 export type ImageStylePreset="reference-video"|"cinematic-realistic"|"anime-2d"|"fantasy-painting"|"watercolor"|"animation-3d"|"custom";
@@ -97,6 +100,8 @@ export type CinematicImage={
   title:string;
   sourceText:string;
   visualDescription?:string;
+  visualSafetyPlan?:VisualSafetyPlan;
+  safetyReport?:VisualSafetyReport;
   prompt:string;
   negativePrompt:string;
   image?:string;
@@ -128,6 +133,7 @@ export type Project={
   continuityMode:"strict"|"balanced";
   visualDensity:VisualDensity;
   imageStylePreset:ImageStylePreset;
+  visualCoverMode?:VisualCoverMode;
   useStylePreset?:boolean;
   useStyleReferences?:boolean;
   useContinuityReferences?:boolean;
