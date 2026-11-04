@@ -104,7 +104,7 @@ export async function POST(req:Request){
       "DENSITY EXECUTION: obey the selected density mode consistently across all segments of this chapter. Higher modes must produce finer story-faithful separation than lower modes, while continuity and anti-filler rules remain equally strict.",
       "ANTI-FILLER: Never split the exact same pose/composition into duplicates just to increase count. Two adjacent lines may share one image only when they can truthfully exist in the same frozen cinematic moment with the same focal subject, pose, location state and emotional beat. Never invent actions, characters, props, locations or reactions not supported by the chapter.",
       `GLOBAL VISUAL STYLE — HARD LOCK: ${requestedVisualStyle}. Keep this exact visual language across the whole chapter and future chapters unless the user explicitly changes the project preset. Do not reinterpret it toward photography, generic 3D CGI, western cartoon or manga-page aesthetics. Copy this locked style faithfully into the visualStyle field and make every imagePrompt compatible with it.`,
-      "VISUAL SAFETY RULE: Preserve the original story facts in summary and narration, but plan imagePrompt as a non-graphic depiction. For explicit physical harm or intimate details, show clothed characters, facial reactions, an off-screen event or a safe establishing shot with a soft-focus background. Do not retain graphic details in camera, action, expression, clothing or visual continuity notes. Do not claim that blur can override a provider rejection.",
+      "VISUAL SAFETY RULE: For EVERY scene, review semantic meaning and produce visualDescription before any image request. Preserve original story facts in sourceText, summary and narration. In visualDescription remove explicit bodily harm, sexual detail or other unsafe depiction entirely: show a fully clothed neutral conversation, a safe establishing shot, a non-graphic reaction or off-screen event. Preserve established ages and identities; never age up minors. Do not hide a prohibited act behind blur, flowers or euphemisms. For permitted non-sexual modesty, use intact clothing, respectful framing or naturally opaque foreground foliage/flowers. visualSafetyPlan must explain briefly whether adapted and any safe coverInstruction. All camera/action/outfit/continuity image fields must agree with the safe visualDescription. Do not repeat graphic details there. Semantic detection is advisory, not a guarantee of provider approval.",
       "STYLE CONSISTENCY RULE: scene-to-scene variation may change camera, action, expression, pose and location only when the story requires it; the character-design language, rendering medium, facial stylization, hair/fabric treatment, environment-detail level, color science and lighting quality must stay from the same art direction.",
       "EXPLAINER STYLE — HARD LOCK: Write an IMMERSIVE CINEMATIC YOUTUBE STORY EXPLAINER, never a synopsis, book review, formal summary, documentary report or line-by-line novel reading. The audience should feel the events unfolding, not hear a report about them.",
       "POV RULE: Choose POV adaptively from the source. For intimate protagonist-led passages, thoughts, conversations and personal experience, first-person can be strongest. For battles, multi-character action, crowd reactions, world events or cinematic spectacle, close third-person can be stronger. Do not force first-person everywhere and do not switch POV casually inside one continuous scene. Stay character-centric and immersive whichever POV is chosen.",
@@ -151,6 +151,8 @@ export async function POST(req:Request){
           cameraDirection:"",
           continuityNotes:"",
           imagePrompt:"",
+          visualDescription:"A concise, independently safe visual beat preserving benign identity, age, setting and art direction",
+          visualSafetyPlan:{adapted:false,coverInstruction:"",reason:""},
           characters:[{name:"",position:"left|center|right|foreground|background",action:"",direction:"",expression:"",stateNotes:""}]
         }]
       }),
@@ -251,6 +253,8 @@ export async function POST(req:Request){
         cameraDirection:stringValue(item.cameraDirection,"preserve screen direction"),
         continuityNotes:stringValue(item.continuityNotes,"Continue persistent character and environment state"),
         imagePrompt:stringValue(item.imagePrompt),
+        visualDescription:stringValue(item.visualDescription)||stringValue(item.sourceText),
+        visualSafetyPlan:{adapted:objectValue(item.visualSafetyPlan).adapted===true,coverInstruction:stringValue(objectValue(item.visualSafetyPlan).coverInstruction),reason:stringValue(objectValue(item.visualSafetyPlan).reason)},
         characters:sceneCharacters
       };
     }).filter((scene)=>scene.sourceText);

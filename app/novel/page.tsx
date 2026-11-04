@@ -47,7 +47,7 @@ type AnalyzePayload={
     cameraAngle:string;
     cameraDirection:string;
     continuityNotes:string;
-    imagePrompt:string;
+    imagePrompt:string;visualDescription?:string;visualSafetyPlan?:import("@/lib/types").VisualSafetyPlan;
     characters:Array<{name:string;position:string;action:string;direction:string;expression:string;stateNotes:string}>;
   }>;
   error?:string;
@@ -260,6 +260,7 @@ export default function NovelImportPage(){
         const newScenes=analysis.scenes.map((item)=>{
           const states=namedSceneCharacters(item.characters,characters);
           const scene=createImage(nextSceneNumber++,item.sourceText,states);
+          scene.visualDescription=item.visualDescription;scene.visualSafetyPlan=item.visualSafetyPlan;
           scene.chapterNumber=number;
           scene.title=item.title||scene.title;
           scene.locationId=findLocation(locations,item.locationName)||priorLocationId;

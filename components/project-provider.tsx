@@ -68,6 +68,7 @@ function normalizeProject(project:Partial<Project>):Project{
     continuityMode:project.continuityMode==="balanced"?"balanced":"strict",
     visualDensity:project.visualDensity==="highest"||project.visualDensity==="ultra"?project.visualDensity:"standard",
     imageStylePreset:STYLE_PRESETS.some((preset)=>preset.value===project.imageStylePreset)?project.imageStylePreset!:"reference-video",
+    visualCoverMode:project.visualCoverMode==="blur"||project.visualCoverMode==="flowers"||project.visualCoverMode==="cover"?project.visualCoverMode:"auto",
     useStylePreset:project.useStylePreset!==false,
     useStyleReferences:project.useStyleReferences!==false,
     useContinuityReferences:project.useContinuityReferences!==false,

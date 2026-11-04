@@ -15,7 +15,7 @@ type Analysis={
  summary:string;explainer:string;visualStyle:string;
  characters:Array<{name:string;role:string;appearance:string;outfit:string;continuityNotes:string}>;
  locations:Array<{name:string;description:string;lighting:string;continuityNotes:string}>;
- scenes:Array<{title:string;sourceText:string;locationName:string;cameraShot:string;cameraAngle:string;cameraDirection:string;continuityNotes:string;imagePrompt:string;characters:Array<{name:string;position:string;action:string;direction:string;expression:string;stateNotes:string}>}>;
+ scenes:Array<{title:string;sourceText:string;locationName:string;cameraShot:string;cameraAngle:string;cameraDirection:string;continuityNotes:string;imagePrompt:string;visualDescription?:string;visualSafetyPlan?:import("@/lib/types").VisualSafetyPlan;characters:Array<{name:string;position:string;action:string;direction:string;expression:string;stateNotes:string}>}>;
  error?:string;
 };
 
@@ -108,6 +108,7 @@ export function BackgroundChapterPipeline({state,setState}:{state:StudioState;se
      let priorLocationId=scenes.at(-1)?.locationId;
      const made=analysis.scenes.map((item)=>{
       const scene=createImage(chapterNumber*1000+localScene++,item.sourceText,namedSceneCharacters(item.characters,characters));
+      scene.visualDescription=item.visualDescription;scene.visualSafetyPlan=item.visualSafetyPlan;
       scene.chapterNumber=chapterNumber;scene.title=item.title||scene.title;scene.locationId=findLocation(locations,item.locationName)||priorLocationId;priorLocationId=scene.locationId;
       scene.cameraShot=item.cameraShot||scene.cameraShot;scene.cameraAngle=item.cameraAngle||scene.cameraAngle;scene.cameraDirection=item.cameraDirection||scene.cameraDirection;scene.continuityNotes=item.continuityNotes||"Continue chapter state from the previous visual.";scene.prompt="";
       return scene;

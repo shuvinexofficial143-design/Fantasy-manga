@@ -44,3 +44,12 @@ it("allows safety-blocked scenes only in the explicit manual retry batch",()=>{
   expect(imageBatchPendingIds([blocked.id],[blocked],"sensenova")).toEqual([]);
   expect(imageBatchPendingIds([blocked.id],[blocked],"sensenova",true)).toEqual([blocked.id]);
 });
+
+it.each(["gemini","xkiro","sensenova"] as const)("skips semantic or output blocks and continues the %s batch",(provider)=>{
+  const blocked=scene("blocked",{status:"failed",failureCode:"VISUAL_PREFLIGHT_BLOCKED"});
+  const after=scene("after");
+  expect(imageBatchPendingIds([blocked.id,after.id],[blocked,after],provider)).toEqual([after.id]);
+  expect(imageFailureAction(provider,"VISUAL_PREFLIGHT_BLOCKED")).toBe("skip-scene");
+  expect(imageFailureAction(provider,"VISUAL_OUTPUT_BLOCKED")).toBe("skip-scene");
+  expect(imageFailureAction(provider,"VISUAL_SAFETY_UNAVAILABLE")).toBe("stop-batch");
+});
