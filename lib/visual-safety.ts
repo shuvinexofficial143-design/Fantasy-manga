@@ -1,5 +1,6 @@
 import sharp from "sharp";
 import {generateVertexText} from "./vertex-text";
+import {generateXkiroVisualReview,xkiroConfigured} from "./xkiro";
 import {imageBytes,parseRegions,redactImage,type RedactionRegion} from "./visual-redaction";
 import type {VisualCoverMode,VisualSafetyReport} from "./types";
 
@@ -23,12 +24,18 @@ function parseJson(raw:string):Record<string,unknown>{
 async function review(instruction:string,images:string[]=[],blockedCode="VISUAL_PREFLIGHT_BLOCKED"){
   try{
     const prepared=await Promise.all(images.map(async(image)=>({mimeType:"image/jpeg",data:(await sharp(imageBytes(image),{limitInputPixels:40_000_000}).rotate().resize({width:768,height:768,fit:"inside",withoutEnlargement:true}).jpeg({quality:80}).toBuffer()).toString("base64")})));
-    const model=process.env.IMAGE_SAFETY_MODEL?.trim()||"gemini-3.1-flash-lite";
-    const raw=await generateVertexText(POLICY+"\n\n"+instruction,{model,temperature:0,maxOutputTokens:4096,...(model==="gemini-3.1-flash-lite"?{thinkingLevel:"minimal" as const}:{}),timeoutMs:20_000,images:prepared});
+    // Choose the reviewer before making any call. Infrastructure configuration
+    // selects one service; a safety refusal never triggers a fallback service.
+    const configured=process.env.IMAGE_SAFETY_PROVIDER?.trim();
+    const provider=configured==="vertex"?"vertex":configured==="xkiro"?"xkiro":xkiroConfigured()?"xkiro":"vertex";
+    const model=process.env.IMAGE_SAFETY_MODEL?.trim()||(provider==="xkiro"?"sensenova/sensenova-6.8-flash-lite":"gemini-3.1-flash-lite");
+    const raw=provider==="xkiro"
+      ?await generateXkiroVisualReview(POLICY+"\n\n"+instruction,model,prepared)
+      :await generateVertexText(POLICY+"\n\n"+instruction,{model,temperature:0,maxOutputTokens:4096,...(model==="gemini-3.1-flash-lite"?{thinkingLevel:"minimal" as const}:{}),timeoutMs:20_000,images:prepared});
     return parseJson(raw);
   }catch(error){
     if(error instanceof VisualSafetyError)throw error;
-    if((error as {code?:string}|null)?.code==="VERTEX_CONTENT_BLOCKED")throw new VisualSafetyError("Visual reviewer ने इस content को रोका। Scene skip किया गया।",blockedCode);
+    if(["VERTEX_CONTENT_BLOCKED","REVIEW_CONTENT_BLOCKED"].includes((error as {code?:string}|null)?.code||""))throw new VisualSafetyError("Visual reviewer ने इस content को रोका। Scene skip किया गया।",blockedCode);
     // Do not log or return sensitive story/image content or upstream credentials.
     throw new VisualSafetyError("Visual safety जाँच पूरी नहीं हो सकी। Unchecked prompt या image की डिलीवरी रोकी गई। थोड़ी देर बाद retry करें।","VISUAL_SAFETY_UNAVAILABLE",503);
   }

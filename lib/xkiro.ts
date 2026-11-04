@@ -109,3 +109,25 @@ export async function generateXkiroImage(prompt:string,model:string,width:number
   const bytes=Buffer.from(await imageResponse.arrayBuffer());
   return {imageDataUrl:`data:${contentType};base64,${bytes.toString("base64")}`,sourceUrl};
 }
+
+let visualModelCatalog:{expires:number;models:XkiroModel[]}|null=null;
+/** Single-attempt visual review. Never switch models or drop images on refusal. */
+export async function generateXkiroVisualReview(prompt:string,model:string,images:Array<{mimeType:string;data:string}>){
+  const key=apiKey();if(!key)throw new Error("Visual reviewer is not configured");
+  if(!visualModelCatalog||visualModelCatalog.expires<Date.now()){
+    const response=await fetch(`${BASE_URL}/models?modality=chat`,{cache:"no-store",signal:AbortSignal.timeout(8000)});
+    if(!response.ok)throw new Error("Visual model capability check unavailable");
+    const payload=await response.json() as {data?:XkiroModel[]};
+    visualModelCatalog={expires:Date.now()+300_000,models:payload.data||[]};
+  }
+  const selected=visualModelCatalog.models.find((item)=>item.id===model);
+  // xKiro can strip images on text-only models; never accept such a review.
+  if(selected?.capabilities?.vision!==true)throw new Error("Reviewer model does not support verified image input");
+  const content=[{type:"text",text:prompt},...images.map((image)=>({type:"image_url",image_url:{url:`data:${image.mimeType};base64,${image.data}`}}))];
+  const response=await fetch(`${BASE_URL}/chat/completions`,{method:"POST",headers:{Authorization:`Bearer ${key}`,"Content-Type":"application/json"},body:JSON.stringify({model,messages:[{role:"user",content}],temperature:0,max_tokens:4096,response_format:{type:"json_object"},...(model==="sensenova/sensenova-6.8-flash-lite"?{reasoning_effort:"none"}:{})}),signal:AbortSignal.timeout(20_000),cache:"no-store"});
+  const payload=await response.json() as {error?:{code?:string};choices?:Array<{finish_reason?:string;message?:{content?:string;refusal?:string}}>};
+  if(payload.error?.code==="content_filter"||payload.choices?.some((choice)=>choice.finish_reason==="content_filter"||Boolean(choice.message?.refusal)))throw Object.assign(new Error("Visual reviewer refused content"),{code:"REVIEW_CONTENT_BLOCKED"});
+  if(!response.ok)throw new Error("Visual reviewer request failed ("+response.status+")");
+  const result=payload.choices?.[0]?.message?.content?.trim();if(!result)throw new Error("Visual reviewer returned no usable result");
+  return result;
+}
