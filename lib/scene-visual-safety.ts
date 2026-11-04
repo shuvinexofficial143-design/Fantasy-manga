@@ -6,12 +6,13 @@
 export type SceneVisualPlan={moment:string;adjusted:boolean;reason?:"graphic-action"|"distressing-detail"|"intimate-content"};
 
 const graphicAction=/\b(?:stab(?:bed|bing|s)?|impal(?:e|ed|ing)?|pierc(?:e|ed|ing)?|thrust(?:ing)?|slash(?:ed|ing)?|dismember(?:ed|ing)?|decapitat(?:e|ed|ion|ing)|behead(?:ed|ing)?|tortur(?:e|ed|ing)?|fatal blow)\b|\b(?:sword|dagger|knife|blade)\b.{0,65}\b(?:into|through|inside)\b.{0,65}\b(?:chest|neck|body|heart|flesh)\b/i;
-const distressingDetail=/\b(?:gore|gory|severed limbs?|bleeding profusely|blood pouring|open wound|blood-soaked|mutilat(?:ed|ion)|corpse|dead body)\b/i;
-const intimateContent=/\b(?:explicit nudity|naked body|nude body|sexual intercourse|graphic sex|sex act|exposed genitals)\b/i;
+const distressingDetail=/\b(?:gore|gory|severed limbs?|bleed(?:ing)?|blood(?:y|ied|stained)?\s+(?:wound|face|chest|hands?|clothes)|blood pouring|open wounds?|blood[- ]soaked|mutilat(?:ed|ion)|corpse|dead body|exposed organs?|entrails)\b|खून.{0,25}(?:बह|लथपथ)|रक्तरंजित|कटा हुआ सिर|क्षत-विक्षत|खुला घाव|लाश/i;
+const intimateContent=/\b(?:nudity|naked|nude|sexual intercourse|graphic sex|sex act|exposed genitals|sexual assault|rape[ds]?)\b|नग्न|निर्वस्त्र|यौन|बलात्कार/i;
+const violentHindi=/चाकू.{0,35}(?:मार|घोंप)|तलवार.{0,35}(?:सीन|छाती|गर्दन)|सिर.{0,15}काट|यातना/i;
 const suddenPain=/\b(?:grabbed|clutched|gripped|held|pressed)\b.{0,70}\bchest\b|\b(?:chest|heart)\b.{0,50}\b(?:sharp pain|severe pain|agony)\b/i;
 
 export function sceneNeedsVisualAdaptation(text:string):boolean{
-  return graphicAction.test(text)||distressingDetail.test(text)||intimateContent.test(text)||suddenPain.test(text);
+  return graphicAction.test(text)||violentHindi.test(text)||distressingDetail.test(text)||intimateContent.test(text)||suddenPain.test(text);
 }
 
 function focalCharacter(text:string):string{
@@ -38,7 +39,7 @@ export function planSceneVisual(sourceText:string):SceneVisualPlan{
       moment:`Show a tasteful emotional conversation between fully clothed adult characters in the established location. Use facial expression, respectful distance, naturally layered fabric and soft atmospheric lighting to express the narrative relationship. Keep the existing facial designs, costumes and full-color cinematic art direction.`
     };
   }
-  if(graphicAction.test(source)||distressingDetail.test(source)){
+  if(graphicAction.test(source)||violentHindi.test(source)||distressingDetail.test(source)){
     return {
       adjusted:true,reason:graphicAction.test(source)?"graphic-action":"distressing-detail",
       moment:`A dramatic fantasy cinematic reaction shot of ${person} in the established setting, reacting to an intense confrontation taking place just beyond the camera frame. Preserve the character's identity, costume, scene geography, and emotional stakes. Frame the camera on expressions and flowing fabric, with shallow depth of field softly obscuring the distant action. Emphasize expressive body language and richly colored atmospheric lighting; the physical impact itself is not visible.`

@@ -1,6 +1,6 @@
 export type ReferenceImage={id:string;name:string;dataUrl:string};
 export type VisualDensity="standard"|"highest"|"ultra";
-export type ImageStylePreset="reference-video"|"cinematic-realistic"|"custom";
+export type ImageStylePreset="reference-video"|"cinematic-realistic"|"anime-2d"|"fantasy-painting"|"watercolor"|"animation-3d"|"custom";
 
 export type Character={
   id:string;
@@ -96,6 +96,7 @@ export type CinematicImage={
   chapterNumber?:number;
   title:string;
   sourceText:string;
+  visualDescription?:string;
   prompt:string;
   negativePrompt:string;
   image?:string;
@@ -127,6 +128,9 @@ export type Project={
   continuityMode:"strict"|"balanced";
   visualDensity:VisualDensity;
   imageStylePreset:ImageStylePreset;
+  useStylePreset?:boolean;
+  useStyleReferences?:boolean;
+  useContinuityReferences?:boolean;
   imageProvider:"gemini"|"xkiro"|"sensenova";
   imageModel:string;
   analysisProvider:"vertex"|"xkiro";

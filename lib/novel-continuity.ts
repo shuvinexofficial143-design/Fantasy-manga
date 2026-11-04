@@ -11,62 +11,46 @@ export function findNamed<T extends {name:string}>(items:T[],name:string):T|unde
 // A generated scene may contain several people; describe it as an ensemble anchor,
 // never as an isolated character master. Keep the immediate previous frame in view.
 export function novelReferences(scene:CinematicImage,project:Project,previous?:CinematicImage){
-  const styleRefs:Array<{image:string;label:string}>=[];
-  const continuityRefs:Array<{image:string;label:string}>=[];
-  const addStyle=(image:string|undefined,label:string)=>{
-    if(image&&!styleRefs.some((item)=>item.image===image)&&styleRefs.length<4)styleRefs.push({image,label});
+  const limit=project.imageProvider==="sensenova"?5:project.imageProvider==="xkiro"?(project.imageModel==="openai/gpt-image-2.5"?1:0):8;
+  const styles:Array<{image:string;label:string}>=[];
+  const continuity:Array<{image:string;label:string}>=[];
+  const add=(target:typeof styles,image:string|undefined,label:string)=>{
+    if(image&&!target.some((ref)=>ref.image===image))target.push({image,label});
   };
-  const addContinuity=(image:string|undefined,label:string)=>{
-    if(image
-      &&!styleRefs.some((item)=>item.image===image)
-      &&!continuityRefs.some((item)=>item.image===image)
-      &&continuityRefs.length<4)continuityRefs.push({image,label});
-  };
-
-  for(const [index,reference] of (project.styleReferences||[]).slice(0,4).entries()){
-    addStyle(reference.dataUrl,`Project style reference ${index+1} — visual language only; match rendering, lighting, palette, material detail and cinematic finish; do not copy its subjects or composition`);
+  if(project.useStyleReferences!==false){
+    for(const [index,ref] of (project.styleReferences||[]).slice(0,4).entries()){
+      add(styles,ref.dataUrl,`Project style reference ${index+1} — rendering, lighting and palette only; do not copy subjects or composition`);
+    }
+    if(!styles.length)add(styles,project.styleReferenceImage,"Legacy master style reference — visual style only");
   }
-  if(!styleRefs.length)addStyle(project.styleReferenceImage,"Legacy master style reference — style only, not scene content");
-
-  const earlier=project.images.filter((item)=>item.sceneNumber<scene.sceneNumber&&item.image).sort((a,b)=>a.sceneNumber-b.sceneNumber);
-  const location=project.locations.find((item)=>item.id===scene.locationId);
-  const locationAnchor=earlier.find((item)=>item.locationId===scene.locationId);
-
-  for(const state of scene.characterStates){
-    const character=project.characters.find((item)=>item.id===state.characterId);
-    addContinuity(character?.referenceImage,`Character master — ${character?.name}`);
-  }
-  addContinuity(location?.referenceImage,`Location master — ${location?.name}`);
-
-  for(const state of scene.characterStates){
-    const character=project.characters.find((item)=>item.id===state.characterId);
-    if(character?.referenceImage)continue;
-    const anchor=earlier.find((item)=>item.characterStates.some((entry)=>entry.characterId===state.characterId));
-    addContinuity(anchor?.image,`Earlier scene ${anchor?.sceneNumber} containing ${character?.name}; preserve that person's face and outfit only`);
-  }
-
-  if(!location?.referenceImage&&location)addContinuity(locationAnchor?.image,`Earlier scene ${locationAnchor?.sceneNumber} at ${location.name}; preserve landmarks and layout`);
-
-  const recent=earlier.filter((item)=>item.sceneNumber>=scene.sceneNumber-4).slice(-4).reverse();
-  if(scene.usePreviousImage){
-    for(const frame of recent){
-      if(continuityRefs.length>=4)break;
-      addContinuity(frame.image,`Recent scene ${frame.sceneNumber}; preserve its characters, setting, pose and props in sequence`);
+  if(project.useContinuityReferences!==false){
+    const earlier=project.images.filter((item)=>item.sceneNumber<scene.sceneNumber&&item.image).sort((a,b)=>a.sceneNumber-b.sceneNumber);
+    for(const state of scene.characterStates){
+      const character=project.characters.find((item)=>item.id===state.characterId);
+      add(continuity,character?.referenceImage,`Character master: ${character?.name}`);
+    }
+    if(scene.usePreviousImage){
+      if(previous?.image&&previous.sceneNumber<scene.sceneNumber)add(continuity,previous.image,`Previous completed scene ${previous.sceneNumber}`);
+      for(const frame of earlier.slice(-2).reverse())add(continuity,frame.image,`Previous completed scene ${frame.sceneNumber}`);
+    }
+    const location=project.locations.find((item)=>item.id===scene.locationId);
+    add(continuity,location?.referenceImage,`Location master: ${location?.name}`);
+    for(const state of scene.characterStates){
+      const character=project.characters.find((item)=>item.id===state.characterId);
+      if(character?.referenceImage)continue;
+      const anchor=earlier.find((item)=>item.characterStates.some((entry)=>entry.characterId===state.characterId));
+      add(continuity,anchor?.image,`Earlier scene ${anchor?.sceneNumber} containing ${character?.name}; face and outfit only`);
+    }
+    if(location&&!location.referenceImage){
+      const anchor=earlier.find((item)=>item.locationId===scene.locationId);
+      add(continuity,anchor?.image,`Earlier scene ${anchor?.sceneNumber} at ${location.name}; architecture only`);
     }
   }
-
-  // Prioritize character identity and the previous two completed frames.
-  const masters=scene.characterStates.flatMap((state)=>{
-    const character=project.characters.find((item)=>item.id===state.characterId);
-    return character?.referenceImage?[{image:character.referenceImage,label:"Character master: "+character.name}]:[];
-  });
-  const frames=scene.usePreviousImage?earlier.slice(-2).reverse().map((item)=>({image:item.image!,label:"Previous completed scene "+item.sceneNumber})):[];
-  const refs:Array<{image:string;label:string}>=[];
-  for(const ref of [...masters,...frames,...continuityRefs,...styleRefs]){
-    if(!refs.some((item)=>item.image===ref.image))refs.push(ref);
-    if(refs.length===8)break;
-  }
-  return {images:refs.map((item)=>item.image),labels:refs.map((item)=>item.label),styleCount:styleRefs.length,continuityCount:continuityRefs.length};
+  // Reserve room for uploaded style references so the provider cap cannot silently
+  // discard them behind character masters and generated frames.
+  const continuityBudget=Math.max(0,limit-Math.min(styles.length,limit));
+  const refs=[...continuity.slice(0,continuityBudget),...styles].filter((ref,index,all)=>all.findIndex((other)=>other.image===ref.image)===index).slice(0,limit);
+  return {images:refs.map((ref)=>ref.image),labels:refs.map((ref)=>ref.label),styleCount:refs.filter((ref)=>styles.includes(ref)).length,continuityCount:refs.filter((ref)=>continuity.includes(ref)).length};
 }
 
 export function namedSceneCharacters(states:Array<{name:string;position:string;action:string;direction:string;expression:string;stateNotes:string}>,characters:Character[]):SceneCharacterState[]{

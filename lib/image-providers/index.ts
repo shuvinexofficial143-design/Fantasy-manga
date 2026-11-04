@@ -30,7 +30,7 @@ export async function generateImage(input:ImageGenerationInput){
   return compact({
     imageDataUrl:result.imageDataUrl,
     sourceUrl:"sourceUrl" in result?result.sourceUrl:undefined,
-    model:input.model||"unknown",
+    model:"model" in result&&typeof result.model==="string"?result.model:input.model||"unknown",
     provider,
     seed:input.seed,
     referenceCount:provider==="sensenova"?("referenceCount" in result?result.referenceCount:0):provider==="gemini"?input.referenceImages?.length||0:(input.model==="openai/gpt-image-2.5"&&input.referenceImages?.[0]?1:0),

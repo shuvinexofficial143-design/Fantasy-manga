@@ -38,3 +38,32 @@ describe("novel visual anchors",()=>{
     expect(refs.labels[1]).toContain("Previous completed scene 1");
   });
 });
+
+it("reserves SenseNova reference slots for every uploaded style",()=>{
+  const project=createProject();project.imageProvider="sensenova";
+  project.styleReferences=Array.from({length:4},(_,i)=>({id:"s"+i,name:"s"+i,dataUrl:"style"+i}));
+  project.characters=[{id:"hero",name:"Hero",role:"lead",appearance:"dark hair",outfit:"blue",referenceImage:"master"}];
+  const previous=createImage(1,"Enters");previous.image="previous";
+  const scene=createImage(2,"Speaks",[{characterId:"hero",position:"left",action:"talks",direction:"right",expression:"calm",stateNotes:""}]);
+  project.images=[previous,scene];
+  const refs=novelReferences(scene,project,previous);
+  expect(refs.images).toEqual(["master","style0","style1","style2","style3"]);
+  expect(refs.styleCount).toBe(4);expect(refs.continuityCount).toBe(1);
+});
+
+it.each([[true,true],[false,true],[true,false],[false,false]])("honors style=%s and continuity=%s switches independently",(style,continuity)=>{
+  const project=createProject();project.useStyleReferences=style;project.useContinuityReferences=continuity;
+  project.styleReferences=[{id:"s",name:"style",dataUrl:"style"}];
+  const previous=createImage(1,"Enters");previous.image="previous";
+  const scene=createImage(2,"Speaks");project.images=[previous,scene];
+  expect(novelReferences(scene,project,previous).images).toEqual([...(continuity?["previous"]:[]),...(style?["style"]:[])]);
+});
+
+it("sends no images to text-only xKiro and only one to its single-reference model",()=>{
+  const project=createProject();project.imageProvider="xkiro";project.imageModel="sensenova/sensenova-u1.5-lite";
+  project.styleReferences=[{id:"s",name:"style",dataUrl:"style"}];
+  const scene=createImage(1,"Speaks");
+  expect(novelReferences(scene,project).images).toEqual([]);
+  project.imageModel="openai/gpt-image-2.5";
+  expect(novelReferences(scene,project).images).toEqual(["style"]);
+});

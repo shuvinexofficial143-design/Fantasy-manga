@@ -38,3 +38,9 @@ describe("imageBatchPendingIds",()=>{
     expect(imageBatchPendingIds(["unknown"],images,"sensenova")).toEqual([]);
   });
 });
+
+it("allows safety-blocked scenes only in the explicit manual retry batch",()=>{
+  const blocked=scene("blocked",{status:"failed",failureCode:"SENSENOVA_SENSITIVE_IMAGE"});
+  expect(imageBatchPendingIds([blocked.id],[blocked],"sensenova")).toEqual([]);
+  expect(imageBatchPendingIds([blocked.id],[blocked],"sensenova",true)).toEqual([blocked.id]);
+});

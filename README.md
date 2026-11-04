@@ -130,3 +130,13 @@ Optional TTS-specific overrides:
 - `GOOGLE_TTS_SPEAKING_RATE=1`
 
 The Voice/TTS page discovers currently available Google Cloud voices dynamically, lets the user choose a voice family and exact voice, and generates MP3 audio from the saved chapter Explainer. It does not write to chapter analysis, scene, prompt, image, or continuity state.
+
+## Image style, references and generation recovery
+
+Images shows the selected provider/model and whether its server credentials are configured. Credential configuration does not prove model access or successful generation. Direct SenseNova uses text-to-image with no references and the edits endpoint with up to five references. Its response reports the model actually used.
+
+Style preset and uploaded style references have independent switches. Available prompt directions include donghua, realistic, 2D anime, fantasy painting, watercolor, 3D animation and custom. Character/location/previous-frame references have a separate switch. With four uploaded styles, SenseNova has one remaining continuity slot; uploaded styles are no longer silently discarded by its cap. The xKiro SenseNova integration is text-only; its GPT image integration accepts one reference.
+
+Before generation, explicit visual details are restaged as non-graphic reaction shots or off-screen action. Auxiliary character, location and continuity text is checked too; original story/narration stays intact. This is a depiction change, not a moderation bypass. Provider safety refusals are recorded and skipped, without automatic retries, reference removal or provider switching. Review the visual description and references, then manually retry that scene. Credential, quota and transport failures stop the batch and remain distinguishable. Parallel Gemini successes are saved even when a sibling request fails.
+
+Verification: `npm test`, `npm run typecheck`, `npm run lint`, `npm run build`. For the mobile UI flow, build first, then run `TEST_START_SERVER=1 node scripts/verify-image-flow.mjs`. Set `CHROMIUM_PATH` if Chromium is already installed. The browser fixture intercepts all generation requests and uses no provider credits.
