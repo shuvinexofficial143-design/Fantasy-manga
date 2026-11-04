@@ -85,8 +85,19 @@ export async function inspectGeneratedVisual(image:string,mode:VisualCoverMode,a
 }
 
 export async function verifyCharacterSheetImage(image:string){
-  const result=await review("CHARACTER TURNAROUND QUALITY CHECK: Inspect the attached image. Return JSON {viewCount:4, views:['front','back','left-profile','right-profile'], allFullBody:true, sameIdentity:true, confident:true}. Count actual drawn views, not text labels. Only use those exact view names when clearly visible. allFullBody means every view shows the top of the head/hair through both feet without cropping. sameIdentity means the same age, person, hairstyle, outfit and body proportions across views. Left and right profiles must be opposite directions and the back view must show the back. If unclear, return confident:false and the actual count/visible views. Do not infer missing poses.",[image],"VISUAL_OUTPUT_BLOCKED");
-  const views=["front","back","left-profile","right-profile"],actualViews=result.views;
-  if(result.viewCount!==4||result.allFullBody!==true||result.sameIdentity!==true||result.confident!==true||!Array.isArray(actualViews)||actualViews.length!==4||!views.every((view)=>actualViews.includes(view)))throw new VisualSafetyError("Character sheet में चारों full-body views साफ़ सत्यापित नहीं हुए। पिछली reference सुरक्षित है। फिर Generate Sheet करें।","CHARACTER_SHEET_LAYOUT_INVALID");
-  return {layout:"four-view" as const,views};
+  const bytes=imageBytes(image),metadata=await sharp(bytes,{limitInputPixels:40_000_000}).metadata();
+  if(!metadata.width||!metadata.height)throw new VisualSafetyError("Character sheet dimensions नहीं मिलीं।","CHARACTER_SHEET_LAYOUT_INVALID");
+  const width=metadata.width,height=metadata.height;
+  // Read profile directions from magnified crops rather than letting the model
+  // repeat the expected four-view answer from a leading JSON example.
+  const details=await Promise.all([2,3].map(async(index)=>{
+    const left=Math.floor(width*index/4),right=Math.floor(width*(index+1)/4);
+    return "data:image/png;base64,"+(await sharp(bytes).extract({left,top:0,width:right-left,height}).png().toBuffer()).toString("base64");
+  }));
+  const [result,...directions]=await Promise.all([
+    review("OBSERVE DRAWN FIGURES. Describe actual pixels, not intended design or text labels. Return JSON with: viewCount (actual number of figures), fourColumns (boolean: exactly four separate figures in one horizontal row), allFullBody (boolean: every figure has visible head and feet), firstTwoDirections (array: actual facing direction of the first two figures, using toward-viewer, away, image-left, image-right or uncertain), sameIdentity (boolean: consistent age, outfit, hairstyle, proportions), confident (boolean). Report what is visible without inferring missing poses.",[image],"VISUAL_OUTPUT_BLOCKED"),
+    ...details.map((detail)=>review("Observe the single drawn figure in this image. Return JSON {noseDirection:string, toeDirection:string, evidence:string}. Direction values: image-left, image-right, toward-viewer, away or uncertain. Look at the protruding nose/chin and toe tips. In IMAGE coordinates, which edge are the nose and toe tips actually pointing toward? Report each separately. Include brief concrete visual evidence. Do not infer a desired orientation from design conventions or labels.",[detail],"VISUAL_OUTPUT_BLOCKED"))
+  ]);
+  if(!Array.isArray(result.firstTwoDirections)||result.firstTwoDirections[0]!=="toward-viewer"||result.firstTwoDirections[1]!=="away"||result.viewCount!==4||result.fourColumns!==true||result.allFullBody!==true||result.sameIdentity!==true||result.confident!==true||!Array.isArray(directions)||directions.length!==2||directions[0]?.noseDirection!=="image-left"||directions[0]?.toeDirection!=="image-left"||directions[1]?.noseDirection!=="image-right"||directions[1]?.toeDirection!=="image-right")throw new VisualSafetyError("Character sheet में front, back और विपरीत दिशाओं वाले दोनों full-body profiles सत्यापित नहीं हुए। पिछली reference सुरक्षित है। फिर Generate Sheet करें।","CHARACTER_SHEET_LAYOUT_INVALID");
+  return {layout:"four-view" as const,views:["front","back","left-profile","right-profile"]};
 }
