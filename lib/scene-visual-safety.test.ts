@@ -80,3 +80,13 @@ it("honors a user-edited safe visual without editing narration or leaking old ac
   expect(prompt).not.toContain(scene.sourceText);
   expect(scene.sourceText).toContain("sword");
 });
+
+it("does not carry previous violent action or a generic injury lock into the next ordinary scene",()=>{
+ const project=createProject(),previous=createImage(64,"A flashback."),scene=createImage(67,"Lucien raised his hand. 'I'm fine.'");
+ project.characters=[{id:"child",name:"Lucien Veyr (Child)",role:"12-year-old child",appearance:"Dark hair",outfit:"Fully clothed in a blue tunic"}];
+ scene.characterStates=[{characterId:"child",position:"left",action:"raises hand",direction:"right",expression:"calm",stateNotes:""}];
+ previous.characterStates=[{...scene.characterStates[0],action:"The sword strikes him",stateNotes:"A wound remains"}];
+ const prompt=buildCinematicPrompt({scene,project,previousScene:previous});
+ expect(prompt).toContain(scene.sourceText);expect(prompt).toContain("12-year-old child");
+ expect(prompt).not.toContain(previous.characterStates[0].action);expect(prompt).not.toContain("A wound remains");expect(prompt).not.toContain("costume, injuries");
+});

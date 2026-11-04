@@ -70,4 +70,10 @@ describe("SenseNova generation contract",()=>{
     await expect(generateSenseNovaImage(input)).rejects.toMatchObject({code:"SENSENOVA_TIMEOUT",statusCode:504});
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
+  it("transmits the exact reviewed prompt without adding another map or compacting it",async()=>{
+    const fetchMock=vi.fn().mockResolvedValue(new Response(JSON.stringify({data:[{b64_json:"aW1hZ2U="}]})));vi.stubGlobal("fetch",fetchMock);
+    const prompt="REFERENCE ROLE MAP: already reviewed.\n\nCURRENT STORY MOMENT: A quiet courtyard.";
+    await generateSenseNovaImage({...input,prompt,promptPrepared:true});
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body).prompt).toBe(prompt);
+  });
 });

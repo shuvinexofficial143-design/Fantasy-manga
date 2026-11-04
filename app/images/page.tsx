@@ -5,8 +5,8 @@ import Link from "next/link";
 import {AlertTriangle,ImageIcon,Loader2,Palette,Play,Sparkles} from "lucide-react";
 import {useEffect,useRef,useState} from "react";
 import {useProject} from "@/components/project-provider";
-import {buildCinematicPrompt,hashString} from "@/lib/cinematic";
-import {novelReferences} from "@/lib/novel-continuity";
+import {buildSceneImageRequest} from "@/lib/scene-image-request";
+import {ImageFailureDetails} from "@/components/image-failure-details";
 import {imageBatchPendingIds,imageFailureAction,isVisualSafetyBlock} from "@/lib/image-batch";
 import {IMAGE_MODELS,selectedImageModel} from "@/lib/image-models";
 import {ImageDirectionControls} from "@/components/image-direction-controls";
@@ -18,16 +18,6 @@ import type {CinematicImage,Project} from "@/lib/types";
 const XKIRO_BATCH_SIZE=1;
 const GEMINI_INITIAL_CONCURRENCY=2;
 const GEMINI_MAX_CONCURRENCY=4;
-const XKIRO_PROMPT_MAX_CHARS=5200;
-
-function compactXkiroPrompt(fullPrompt:string){
-  const sections=fullPrompt.split(/\n\n+/).map((part)=>part.trim()).filter(Boolean);
-  const priority=["Generate exactly ONE","MASTER ART-DIRECTION LOCK","CURRENT STORY MOMENT","CURRENT LOCATION","CHARACTER BIBLE","CAMERA CONTINUITY","CURRENT CONTINUITY NOTES","COMPOSITION","ABSOLUTE LAYOUT RULE"];
-  const selected=priority.flatMap((prefix)=>sections.filter((section)=>section.startsWith(prefix)));
-  const compact=selected.join("\n\n");
-  return (compact||fullPrompt).slice(0,XKIRO_PROMPT_MAX_CHARS);
-}
-
 export default function ImagesPage(){
   const {project,setState,updateProject}=useProject();
   const [busy,setBusy]=useState("");
@@ -49,36 +39,22 @@ export default function ImagesPage(){
 
   const generateScene=(sceneId:string,working:Project)=>async()=>{
     generationController.current?.signal.throwIfAborted();
-    const ordered=[...working.images].sort((a,b)=>a.sceneNumber-b.sceneNumber);
-    const index=ordered.findIndex((item)=>item.id===sceneId);
-    if(index<0)throw new Error("Scene not found.");
-    const scene=ordered[index],previous=index>0?ordered[index-1]:undefined;
-    // Missing previous frames must not deadlock a chapter: use the nearest available completed frame.
-    const completedPrevious=[...ordered.slice(0,index)].reverse().find((item)=>Boolean(item.image));
-    // buildCinematicPrompt now adjusts sensitive visual descriptions BEFORE the
-    // API request while preserving project colors, reference identity and style.
-    const fullPrompt=buildCinematicPrompt({
-      scene,project:working,previousScene:previous?.image?previous:completedPrevious
-    });
-    const prompt=working.imageProvider==="xkiro"?compactXkiroPrompt(fullPrompt):fullPrompt;
-    const refs=novelReferences(scene,working,completedPrevious);
-    if(refs.omittedCharacterNames.length)throw new Error("इस scene के सभी character references model की सीमा में नहीं आते: "+refs.omittedCharacterNames.join(", ")+"। अधिक references लेने वाला model या अलग scene composition चुनें।");
-    const response=await fetch("/api/generate",{signal:generationController.current?.signal,method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({
-      prompt,negativePrompt:working.useStylePreset!==false&&working.imageStylePreset==="reference-video"?scene.negativePrompt:"text, captions, logo, collage, duplicate character, inconsistent identity",aspectRatio:working.aspectRatio,
-      provider:working.imageProvider,model:working.imageModel,visualCoverMode:working.visualCoverMode,
-      seed:scene.seed||hashString(working.id+"|"+scene.characterStates.map((state)=>state.characterId).sort().join("|")+"|"+(scene.locationId||"")),
-      referenceImages:refs.images,referenceLabels:refs.labels
-    })});
+    const scene=working.images.find((item)=>item.id===sceneId);
+    if(!scene)throw new Error("Scene not found.");
+    const request=buildSceneImageRequest(sceneId,working);
+    const response=await fetch("/api/generate",{signal:generationController.current?.signal,method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(request)});
     const data=await readImageResponse(response);
-    return {...scene,prompt:data.effectivePrompt||prompt,safetyReport:data.safety,image:data.image,provider:data.provider,model:data.model,seed:data.seed,referenceCount:data.referenceCount,status:"completed" as const,error:undefined,failureCode:undefined};
+    return {...scene,prompt:data.effectivePrompt||request.prompt,safetyReport:data.safety,image:data.image,provider:data.provider,model:data.model,seed:data.seed,referenceCount:data.referenceCount,status:"completed" as const,error:undefined,failureCode:undefined,failureDiagnostics:undefined};
   };
 
   const recordFailure=(working:Project,sceneId:string,reason:unknown):Project=>{
-    const message=reason instanceof Error?reason.message:"Image generation failed.";
+    const failedCharacter=(reason as {characterName?:string})?.characterName;
+    const message=reason instanceof Error?(failedCharacter?failedCharacter+" की character sheet: ":"")+reason.message:"Image generation failed.";
     const rawCode=(reason as {code?:unknown}|null)?.code;
     const failureCode=typeof rawCode==="string"?rawCode:undefined;
+    const failureDiagnostics=(reason as {diagnostics?:CinematicImage["failureDiagnostics"]})?.diagnostics;
     return {...working,images:working.images.map((item)=>item.id===sceneId
-      ?{...item,status:"failed" as const,error:message,failureCode}
+      ?{...item,status:"failed" as const,error:message,failureCode,failureDiagnostics,prompt:failureDiagnostics?.effectivePrompt||item.prompt}
       :item),updatedAt:new Date().toISOString()};
   };
 
@@ -87,7 +63,7 @@ export default function ImagesPage(){
     setBusy(scene.id);setError("");setNotice("");
     let working=project;
     try{
-      working=await ensureSceneCharacterSheets(working,[scene.id],(next)=>{working=next;commit(next)},setProgress,generationController.current?.signal);
+      working=await ensureSceneCharacterSheets(working,[scene.id],(next)=>{working=next;commit(next)},setProgress,generationController.current?.signal,new Set(scene.characterStates.map((state)=>state.characterId)));
       const done=await generateScene(scene.id,working)();
       commit({...working,images:working.images.map((item)=>item.id===done.id?done:item),updatedAt:new Date().toISOString()});
       setNotice("Scene "+scene.sceneNumber+" image generated with "+selectedModel.label+".");
@@ -109,13 +85,14 @@ export default function ImagesPage(){
       // The separate Retry Failed button is an explicit person-triggered retry.
       // Ordinary Generate Remaining never resubmits a provider-refused scene.
       const pendingIds=imageBatchPendingIds(targetIds,working.images,working.imageProvider,retryFailed);
-      working=await ensureSceneCharacterSheets(working,pendingIds,(next)=>{working=next;commit(next)},setProgress,generationController.current?.signal);
+      const manualRetryCharacters=new Set(retryFailed?pendingIds.flatMap((id)=>working.images.find((scene)=>scene.id===id)?.characterStates.map((state)=>state.characterId)||[]):[]);
       if(working.imageProvider==="xkiro"||working.imageProvider==="sensenova"){
         for(let offset=0;offset<pendingIds.length;offset+=XKIRO_BATCH_SIZE){
           const batch=pendingIds.slice(offset,offset+XKIRO_BATCH_SIZE);
           setProgress((working.imageProvider==="sensenova"?"SenseNova":"xKiro")+" · "+(offset+1)+" / "+pendingIds.length+" · क्रम से image बन रही है…");
           for(const id of batch){
             try{
+              working=await ensureSceneCharacterSheets(working,[id],(next)=>{working=next;commit(next)},setProgress,generationController.current?.signal,manualRetryCharacters);
               const done=await generateScene(id,working)();
               working={...working,images:working.images.map((item)=>item.id===done.id?done:item),updatedAt:new Date().toISOString()};
               commit(working);
@@ -141,11 +118,16 @@ export default function ImagesPage(){
         while(offset<pendingIds.length){
           const batch=pendingIds.slice(offset,offset+concurrency);
           setProgress("Google Cloud Gemini · "+Math.min(offset+batch.length,pendingIds.length)+" / "+pendingIds.length+" · "+batch.length+" images parallel generate हो रही हैं…");
-          const results=await Promise.allSettled(batch.map((id)=>generateScene(id,working)()));
+          const readyIds:string[]=[];
+          for(const id of batch){
+            try{working=await ensureSceneCharacterSheets(working,[id],(next)=>{working=next;commit(next)},setProgress,generationController.current?.signal,manualRetryCharacters);readyIds.push(id)}
+            catch(reason){working=recordFailure(working,id,reason);commit(working);if(imageFailureAction(working.imageProvider,(reason as {code?:unknown})?.code)==="stop-batch")throw reason}
+          }
+          const results=await Promise.allSettled(readyIds.map((id)=>generateScene(id,working)()));
           for(const [index,result] of results.entries()){
             working=result.status==="fulfilled"
               ?{...working,images:working.images.map((item)=>item.id===result.value.id?result.value:item),updatedAt:new Date().toISOString()}
-              :recordFailure(working,batch[index],result.reason);
+              :recordFailure(working,readyIds[index],result.reason);
           }
           commit(working);
           const failed=results.find((result)=>result.status==="rejected"&&imageFailureAction(working.imageProvider,(result.reason as {code?:unknown})?.code)==="stop-batch");
@@ -209,7 +191,7 @@ export default function ImagesPage(){
 
     {scenes.length?<div className="grid gap-5 lg:grid-cols-2">{scenes.map((scene,index)=><article key={scene.id} className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
       <div className="relative aspect-video bg-slate-100">{scene.image?<Image src={scene.image} alt={scene.title} fill unoptimized sizes="(max-width: 1024px) 100vw, 50vw" className="object-cover"/>:<div className="grid h-full place-items-center text-slate-300"><ImageIcon size={38}/></div>}</div>
-      <div className="p-4"><div className="flex items-start justify-between gap-3"><div><div className="text-xs font-black uppercase tracking-wider text-violet-600">Visual {index+1} · Scene {scene.sceneNumber}</div><div className="mt-1 font-black text-slate-900">{scene.title}</div></div><span className="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-black uppercase text-slate-500">{scene.status}</span></div><div className="mt-3 line-clamp-3 text-sm leading-5 text-slate-500">{scene.sourceText}</div>{scene.safetyReport&&<div className="mt-3 rounded-xl bg-emerald-50 p-3 text-xs text-emerald-800">Prompt और image की visual जाँच पूरी · {scene.safetyReport.promptAdjusted?"Prompt safely adjusted":"Prompt reviewed"} · {scene.safetyReport.redactedRegions} region(s) covered</div>}{scene.status==="failed"&&scene.error&&<div role="alert" className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-900">{scene.error}{(scene.failureCode==="SENSENOVA_SENSITIVE_IMAGE"||isVisualSafetyBlock(scene.failureCode))&&<div className="mt-2 border-t border-amber-200 pt-2"><strong>Reference roles:</strong> {novelReferences(scene,project).labels.slice(0,5).join(" · ")||"No reference images"}<p className="mt-2">यह scene skip हुआ है। अगली images Generate Remaining से बनेंगी। Visual description और references की समीक्षा करके सिर्फ इस scene को Retry Image से चलाएँ।</p><Link href="/references" className="mt-2 inline-block font-bold underline">Review References</Link></div>}</div>}{!scene.image&&scene.status==="failed"&&<label className="mt-3 block text-xs font-bold text-slate-700">Visual description सुधारें (केवल image के लिए)<textarea aria-label={"Visual description for scene "+scene.sceneNumber} disabled={!!busy} value={scene.visualDescription??planSceneVisual(scene.sourceText).moment} onChange={(e)=>updateProject((p)=>({...p,images:p.images.map((item)=>item.id===scene.id?{...item,visualDescription:e.target.value}:item),updatedAt:new Date().toISOString()}))} className="mt-2 min-h-28 w-full rounded-xl border border-slate-200 p-3 font-normal"/><span className="mt-1 block font-normal text-slate-500">चेहरे की reaction, सुरक्षित setting और off-screen action बताएँ। References की भी समीक्षा करें, फिर Retry Image दबाएँ।</span></label>}{!scene.image&&<button disabled={!!busy} onClick={()=>void generateOne(scene)} className="mt-4 inline-flex items-center gap-2 rounded-xl bg-slate-900 px-3.5 py-2.5 text-xs font-bold text-white disabled:opacity-50">{busy===scene.id?<Loader2 className="animate-spin" size={14}/>:<Play size={14}/>} {scene.status==="failed"?"Retry Image":"Generate Image"}</button>}</div>
+      <div className="p-4"><div className="flex items-start justify-between gap-3"><div><div className="text-xs font-black uppercase tracking-wider text-violet-600">Visual {index+1} · Scene {scene.sceneNumber}</div><div className="mt-1 font-black text-slate-900">{scene.title}</div></div><span className="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-black uppercase text-slate-500">{scene.status}</span></div><div className="mt-3 line-clamp-3 text-sm leading-5 text-slate-500">{scene.sourceText}</div>{scene.safetyReport&&<div className="mt-3 rounded-xl bg-emerald-50 p-3 text-xs text-emerald-800">Prompt और image की visual जाँच पूरी · {scene.safetyReport.promptAdjusted?"Prompt safely adjusted":"Prompt reviewed"} · {scene.safetyReport.redactedRegions} region(s) covered</div>}{scene.status==="failed"&&scene.error&&<ImageFailureDetails key={scene.failureDiagnostics?.requestId||scene.failureCode} error={scene.error} code={scene.failureCode} diagnostics={scene.failureDiagnostics} project={project} sceneId={scene.id} disabled={!!busy}/>}{!scene.image&&scene.status==="failed"&&<label className="mt-3 block text-xs font-bold text-slate-700">Visual description सुधारें (केवल image के लिए)<textarea aria-label={"Visual description for scene "+scene.sceneNumber} disabled={!!busy} value={scene.visualDescription??planSceneVisual(scene.sourceText).moment} onChange={(e)=>updateProject((p)=>({...p,images:p.images.map((item)=>item.id===scene.id?{...item,visualDescription:e.target.value}:item),updatedAt:new Date().toISOString()}))} className="mt-2 min-h-28 w-full rounded-xl border border-slate-200 p-3 font-normal"/><span className="mt-1 block font-normal text-slate-500">चेहरे की reaction, सुरक्षित setting और off-screen action बताएँ। References की भी समीक्षा करें, फिर Retry Image दबाएँ।</span></label>}{!scene.image&&<button disabled={!!busy} onClick={()=>void generateOne(scene)} className="mt-4 inline-flex items-center gap-2 rounded-xl bg-slate-900 px-3.5 py-2.5 text-xs font-bold text-white disabled:opacity-50">{busy===scene.id?<Loader2 className="animate-spin" size={14}/>:<Play size={14}/>} {scene.status==="failed"?"Retry Image":"Generate Image"}</button>}</div>
     </article>)}</div>:<section className="rounded-2xl border border-dashed border-slate-300 bg-white p-10 text-center"><ImageIcon className="mx-auto text-slate-300" size={36}/><div className="mt-3 font-black text-slate-700">Generate करने के लिए analyzed visuals नहीं हैं</div><div className="mt-2 text-sm text-slate-500">पहले Story Input page पर chapter analyze करें।</div><Link href="/novel" className="mt-4 inline-block rounded-xl bg-violet-600 px-4 py-2.5 text-sm font-bold text-white">Go to Story Input</Link></section>}
   </div>;
 }

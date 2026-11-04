@@ -1,3 +1,4 @@
+import {reviewHttpError} from "./review-service";
 import {createSign} from "node:crypto";
 import {generateXkiroText} from "@/lib/xkiro";
 
@@ -150,9 +151,9 @@ export async function generateVertexText(prompt:string,options:GenerateVertexTex
 
   if(!response.ok){
     const text=await response.text().catch(()=>"");
-    throw new Error(
+    throw Object.assign(new Error(
       `Vertex story planner failed (${response.status})${text?`: ${text.replace(/\s+/g," ").slice(0,400)}`:""}`
-    );
+    ),{reviewFailure:reviewHttpError(response.status,response.headers.get("retry-after"))});
   }
 
   const payload=await response.json() as {

@@ -18,7 +18,7 @@ it("generates each missing active-character sheet once and preserves successful 
  const fetcher=vi.fn().mockResolvedValueOnce(new Response(JSON.stringify({image:"first sheet",characterSheet:{layout:"four-view",views:["front","back","left-profile","right-profile"]}}))).mockResolvedValueOnce(new Response(JSON.stringify({error:"Sheet not verified"}),{status:422}));vi.stubGlobal("fetch",fetcher);
  const saved:typeof project[]=[];
  await expect(ensureSceneCharacterSheets(project,[scene.id],next=>saved.push(next),()=>{})).rejects.toThrow("Sheet not verified");
- expect(saved).toHaveLength(1);expect(isCharacterSheetReady(saved[0].characters[0])).toBe(true);expect(fetcher).toHaveBeenCalledTimes(2);
+ expect(saved).toHaveLength(2);expect(saved[1].characters[1].sheetFailure?.error).toBe("Sheet not verified");expect(isCharacterSheetReady(saved[0].characters[0])).toBe(true);expect(fetcher).toHaveBeenCalledTimes(2);
  expect(JSON.parse(fetcher.mock.calls[0][1].body).purpose).toBe("character-sheet");
 });
 it("does not generate sheets when references are disabled or the job is canceled",async()=>{
@@ -27,4 +27,19 @@ it("does not generate sheets when references are disabled or the job is canceled
  await ensureSceneCharacterSheets(project,[scene.id],()=>{},()=>{});expect(fetcher).not.toHaveBeenCalled();
  project.useContinuityReferences=true;const controller=new AbortController();controller.abort();
  await expect(ensureSceneCharacterSheets(project,[scene.id],()=>{},()=>{},controller.signal)).rejects.toThrow();expect(fetcher).not.toHaveBeenCalled();
+});
+
+it("remembers a refused character sheet, lets unrelated characters proceed and consumes a manual retry once",async()=>{
+ const project=createProject();project.imageProvider="sensenova";project.imageModel="sensenova-u1.5-lite";project.characters=[hero,{...hero,id:"friend",name:"Friend"}];
+ project.images=project.characters.map((character,i)=>createImage(i+1,"A quiet scene",[{characterId:character.id,position:"left",action:"stands",direction:"right",expression:"calm",stateNotes:""}]));
+ const refusal=()=>new Response(JSON.stringify({error:"Provider refused sheet",code:"SENSENOVA_SENSITIVE_IMAGE",diagnostics:{requestId:"sheet",target:"character-sheet",stage:"generation",kind:"provider-policy",referenceLabels:[],imageGenerated:false}}),{status:422});
+ const fetcher=vi.fn().mockResolvedValueOnce(refusal()).mockResolvedValueOnce(new Response(JSON.stringify({image:"friend sheet",characterSheet:{layout:"four-view"}}))).mockResolvedValueOnce(refusal());vi.stubGlobal("fetch",fetcher);
+ let working=project;const save=(next:typeof project)=>{working=next};
+ await expect(ensureSceneCharacterSheets(working,[project.images[0].id],save,()=>{})).rejects.toMatchObject({code:"SENSENOVA_SENSITIVE_IMAGE"});
+ await expect(ensureSceneCharacterSheets(working,[project.images[0].id],save,()=>{})).rejects.toMatchObject({code:"SENSENOVA_SENSITIVE_IMAGE"});expect(fetcher).toHaveBeenCalledTimes(1);
+ working=await ensureSceneCharacterSheets(working,[project.images[1].id],save,()=>{});expect(isCharacterSheetReady(working.characters[1])).toBe(true);
+ const manual=new Set([hero.id]);
+ await expect(ensureSceneCharacterSheets(working,[project.images[0].id],save,()=>{},undefined,manual)).rejects.toMatchObject({code:"SENSENOVA_SENSITIVE_IMAGE"});
+ expect(manual.has(hero.id)).toBe(false);
+ await expect(ensureSceneCharacterSheets(working,[project.images[0].id],save,()=>{},undefined,manual)).rejects.toMatchObject({code:"SENSENOVA_SENSITIVE_IMAGE"});expect(fetcher).toHaveBeenCalledTimes(3);
 });

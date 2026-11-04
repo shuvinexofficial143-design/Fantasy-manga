@@ -9,7 +9,9 @@ export class SenseNovaRequestError extends Error {
   constructor(
     message:string,
     public readonly statusCode:number,
-    public readonly code:string
+    public readonly code:string,
+    public readonly providerCode?:string,
+    public readonly providerRequestId?:string
   ){super(message);this.name="SenseNovaRequestError"}
 }
 
@@ -20,8 +22,8 @@ export function classifySenseNovaError(status:number,responseBody:string):SenseN
   const providerCode=String(details?.error?.code??"");
   if([400,403,422].includes(status)&&(providerCode==="18"||/sensitive (?:image|content)|content[_ -]?(?:policy|filter)|safety (?:check|policy)/i.test(message))){
     return new SenseNovaRequestError(
-      "SenseNova ने scene या reference को sensitive बताकर रोका। Visual description और references की समीक्षा करें। यह scene skip होगा; अगली images जारी रहेंगी। अपने आप दोबारा request नहीं भेजी जाएगी।",
-      status,"SENSENOVA_SENSITIVE_IMAGE"
+      "SenseNova ने scene या reference को sensitive बताकर रोका। Provider ने exact शब्द, reference index या policy category नहीं बताई। Visual description और attached references की समीक्षा करें। यह scene skip होगा; अगली images जारी रहेंगी। अपने आप दोबारा request नहीं भेजी जाएगी।",
+      status,"SENSENOVA_SENSITIVE_IMAGE",providerCode
     );
   }
   const shortDetail=(message||responseBody).replace(/\s+/g," ").slice(0,240);
@@ -62,7 +64,7 @@ const PROMPT_LIMIT=4800;
 function compactSenseNovaPrompt(full:string){
   if(full.length<=PROMPT_LIMIT)return full;
   const blocks=full.split(/\n\s*\n/).map((part)=>part.trim()).filter(Boolean);
-  const priorities=["CURRENT STORY MOMENT","REFERENCE ROLE MAP","MASTER ART-DIRECTION LOCK","COLOR CONSISTENCY","CHARACTER BIBLE","CURRENT LOCATION","CAMERA CONTINUITY","UPLOADED STYLE REFERENCE PACK","CONTINUITY STRENGTH","PREVIOUS SCENE STATE","COMPOSITION","LAYOUT","Generate exactly ONE"];
+  const priorities=["CURRENT STORY MOMENT","CHARACTER BIBLE","REFERENCE ROLE MAP","MASTER ART-DIRECTION LOCK","COLOR CONSISTENCY","CURRENT LOCATION","CAMERA CONTINUITY","UPLOADED STYLE REFERENCE PACK","CONTINUITY STRENGTH","PREVIOUS SCENE STATE","COMPOSITION","LAYOUT","Generate exactly ONE"];
   const ranked=[...blocks].sort((a,b)=>{
     const rank=(value:string)=>{const i=priorities.findIndex((prefix)=>value.startsWith(prefix));return i<0?priorities.length:i};
     return rank(a)-rank(b);
@@ -78,6 +80,12 @@ function compactSenseNovaPrompt(full:string){
   return selected.join("\n\n").slice(0,PROMPT_LIMIT);
 }
 
+export function senseNovaPromptWithRoles(prompt:string,labels:string[]){
+  const map=labels.map((label,index)=>"Image "+(index+1)+": "+label).join("\n");
+  return [map?"REFERENCE ROLE MAP:\n"+map+"\nUse images only for their stated roles. Style references guide rendering and palette; do not copy unrelated subjects or compositions.":"",prompt].filter(Boolean).join("\n\n");
+}
+export function prepareSenseNovaPrompt(prompt:string,labels:string[]){return compactSenseNovaPrompt(senseNovaPromptWithRoles(prompt,labels))}
+
 export async function generateSenseNovaImage(input:ImageGenerationInput){
   const key=process.env.SENSENOVA_API_KEY?.trim();
   if(!key)throw new Error("SENSENOVA_API_KEY is not configured.");
@@ -88,8 +96,9 @@ export async function generateSenseNovaImage(input:ImageGenerationInput){
   const refs=(input.referenceImages||[]).slice(0,5);
   const size=input.width/input.height>1.5?"1536x1024":input.width<input.height?"1024x1536":"1024x1024";
   const normalized=await Promise.all(refs.map(normalizeReference));
-  const referenceMap=refs.map((_,index)=>"Image "+(index+1)+": "+(input.referenceLabels?.[index]||"visual reference")).join("\n");
-  const prompt=compactSenseNovaPrompt([referenceMap?"REFERENCE ROLE MAP:\n"+referenceMap+"\nUse images only for their stated roles. Style references guide rendering and palette; do not copy unrelated subjects or compositions.":"",input.prompt].filter(Boolean).join("\n\n"));
+  // The route reviews the final provider-sized prompt including role labels.
+  // Do not compact, reorder or append text after that approval.
+  const prompt=input.promptPrepared?input.prompt:prepareSenseNovaPrompt(input.prompt,refs.map((_,index)=>input.referenceLabels?.[index]||"visual reference"));
   const payload=refs.length
     ?{model,images:normalized.map((image_url)=>({image_url})),prompt,n:1,size:"auto",watermark:true,prompt_extend:false,response_format:"url"}
     :{model,prompt,n:1,size,watermark:true,prompt_extend:false,response_format:"url"};
@@ -105,7 +114,9 @@ export async function generateSenseNovaImage(input:ImageGenerationInput){
   }
   if(!response.ok){
     const detail=(await response.text().catch(()=>"")).slice(0,600);
-    throw classifySenseNovaError(response.status,detail);
+    const error=classifySenseNovaError(response.status,detail);
+    const requestId=response.headers.get("x-request-id")||response.headers.get("request-id");
+    throw Object.assign(error,{providerRequestId:requestId?.replace(/[^a-zA-Z0-9_.:-]/g,"").slice(0,150)});
   }
   const result=await response.json() as {data?:Array<{url?:string;b64_json?:string}>};
   const item=result.data?.[0];

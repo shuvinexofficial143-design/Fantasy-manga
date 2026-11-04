@@ -10,3 +10,7 @@ it("explains HTML gateway timeouts and oversized reference requests",async()=>{
 it("rejects an empty success response without crashing",async()=>{
   await expect(readImageResponse(new Response('null'))).rejects.toThrow("Image generation failed");
 });
+it("preserves the request's diagnostic snapshot instead of recomputing references later",async()=>{
+ const diagnostics={requestId:"request-1",stage:"generation",kind:"provider-policy",providerPrompt:"Exact submitted prompt",referenceLabels:["Previous completed scene 64"],imageGenerated:false};
+ await expect(readImageResponse(new Response(JSON.stringify({error:"Refused",code:"SENSENOVA_SENSITIVE_IMAGE",retryable:false,diagnostics}),{status:422}))).rejects.toMatchObject({diagnostics,retryable:false});
+});
