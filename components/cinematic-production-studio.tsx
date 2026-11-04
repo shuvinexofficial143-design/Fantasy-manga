@@ -48,7 +48,7 @@ export function CinematicProductionStudio(){
   const updateCharacter=(id:string,value:Partial<Character>)=>patch({characters:project.characters.map((item)=>item.id===id?{...item,...value}:item)});
   const updateLocation=(id:string,value:Partial<Location>)=>patch({locations:project.locations.map((item)=>item.id===id?{...item,...value}:item)});
   const upload=async(event:ChangeEvent<HTMLInputElement>)=>{const file=event.target.files?.[0];return file?await fileToDataUrl(file):undefined};
-  const uploadCharacter=async(id:string,event:ChangeEvent<HTMLInputElement>)=>{try{const image=await upload(event);if(image)updateCharacter(id,{referenceImage:image})}catch(reason){setError(reason instanceof Error?reason.message:"Upload failed")}};
+  const uploadCharacter=async(id:string,event:ChangeEvent<HTMLInputElement>)=>{try{const image=await upload(event);if(image)updateCharacter(id,{referenceImage:image,referenceSheet:undefined})}catch(reason){setError(reason instanceof Error?reason.message:"Upload failed")}};
   const uploadLocation=async(id:string,event:ChangeEvent<HTMLInputElement>)=>{try{const image=await upload(event);if(image)updateLocation(id,{referenceImage:image})}catch(reason){setError(reason instanceof Error?reason.message:"Upload failed")}};
   const uploadStyle=async(event:ChangeEvent<HTMLInputElement>)=>{try{const image=await upload(event);if(image)patch({styleReferenceImage:image})}catch(reason){setError(reason instanceof Error?reason.message:"Upload failed")}};
 

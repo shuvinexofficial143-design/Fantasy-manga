@@ -1,30 +1,42 @@
 "use client";
 
 import Link from "next/link";
-import {BookOpenText,Check,ChevronDown,FilePlus2,Film,ImageIcon,Mic2,Play,ScanSearch} from "lucide-react";
+import {BookOpenText,Check,ChevronDown,FilePlus2,Film,ImageIcon,Mic2,Play,ScanSearch,Trash2} from "lucide-react";
 import {useState} from "react";
 import {useProject} from "@/components/project-provider";
+import {deleteProjectChapter,chapterRevision} from "@/lib/chapter-deletion";
+import {storyDraftKey,notifyStoryDraftChanged} from "@/lib/story-drafts";
 import {createDraftChapter,nextChapterNumber} from "@/lib/chapters";
 
 export default function ChaptersPage(){
   const {project,updateProject}=useProject();
   const novel=project.novelImport||{novelTitle:"",locked:false,currentChapter:1,autoGenerate:false,chapters:[],errorLog:[]};
   const chapters=[...(novel.chapters||[])].sort((a,b)=>a.number-b.number);
+  const [deleteNumber,setDeleteNumber]=useState<number|null>(null);
   const [openInput,setOpenInput]=useState<number|null>(null);
   const [drafts,setDrafts]=useState<Record<number,string>>({});
 
+  const confirmDelete=()=>{
+    if(deleteNumber===null)return;
+    updateProject((item)=>deleteProjectChapter(item,deleteNumber));
+    try{localStorage.removeItem(storyDraftKey(project.id,deleteNumber,chapterRevision(project,deleteNumber)));notifyStoryDraftChanged()}catch{}
+    setDrafts((current)=>{const next={...current};delete next[deleteNumber];return next});
+    if(openInput===deleteNumber)setOpenInput(null);
+    setDeleteNumber(null);
+  };
   const selectChapter=(number:number)=>updateProject((item)=>({...item,novelImport:{...(item.novelImport||novel),currentChapter:number},updatedAt:new Date().toISOString()}));
   const createChapter=()=>{const number=nextChapterNumber(chapters),draft=createDraftChapter(number);updateProject((item)=>({...item,novelImport:{...(item.novelImport||novel),currentChapter:number,chapters:[...chapters,draft]},updatedAt:new Date().toISOString()}));setOpenInput(number)};
   const toggleAuto=()=>updateProject((item)=>({...item,novelImport:{...(item.novelImport||novel),autoGenerate:!novel.autoGenerate},updatedAt:new Date().toISOString()}));
   const saveStory=(number:number)=>{const value=drafts[number]??chapters.find((c)=>c.number===number)?.sourceText??"";updateProject((item)=>{const state=item.novelImport||novel;return {...item,story:value,novelImport:{...state,currentChapter:number,chapters:state.chapters.map((c)=>c.number===number?{...c,sourceText:value,status:value.trim()?"scanned":"draft",pipeline:value.trim()&&state.autoGenerate?{stage:"queued" as const,progress:0,message:"Background pipeline queue में है।",updatedAt:new Date().toISOString()}:c.pipeline,error:undefined}:c)},updatedAt:new Date().toISOString()}});setOpenInput(null)};
 
   return <div className="mx-auto max-w-7xl space-y-5">
+    {deleteNumber!==null&&<div role="dialog" aria-modal="true" aria-labelledby="delete-chapter-title" className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onKeyDown={(event)=>{if(event.key==="Escape")setDeleteNumber(null)}}><div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl"><h2 id="delete-chapter-title" className="text-lg font-black">Delete Chapter {deleteNumber}?</h2><p className="mt-3 text-sm leading-6 text-slate-600">इस chapter की saved story, analysis, explainer और जुड़े scenes/images हट जाएँगे। दूसरे chapters और character library बनी रहेगी।</p><div className="mt-5 flex justify-end gap-3"><button autoFocus onClick={()=>setDeleteNumber(null)} className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-bold">Cancel</button><button onClick={confirmDelete} className="rounded-xl bg-red-600 px-4 py-2 text-sm font-bold text-white">Delete Chapter</button></div></div></div>}
     <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
         <div><div className="text-xs font-black uppercase tracking-[.2em] text-violet-600">Chapter Production Control</div><h1 className="mt-2 text-3xl font-black">Chapters</h1><p className="mt-2 text-sm leading-6 text-slate-500">हर chapter की story, analysis, planning, explainer, images, voice और video एक ही जगह track करें।</p></div>
         <div className="flex flex-wrap items-center gap-3">
           <div className="flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2"><div><div className="text-[10px] font-black uppercase tracking-wider text-slate-500">Automation</div><div className={"text-xs font-black "+(novel.autoGenerate?"text-emerald-700":"text-slate-500")}>{novel.autoGenerate?"ON":"OFF"}</div></div><button aria-label="Toggle automation" onClick={toggleAuto} className={"relative h-7 w-12 rounded-full transition "+(novel.autoGenerate?"bg-emerald-500":"bg-slate-300")}><span className={"absolute top-1 h-5 w-5 rounded-full bg-white shadow transition-all "+(novel.autoGenerate?"left-6":"left-1")}/></button></div>
-          <button onClick={createChapter} className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-4 py-3 text-sm font-black text-white"><FilePlus2 size={16}/> Create Chapter</button>
+          <button aria-label="Create new chapter" onClick={createChapter} className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-4 py-3 text-sm font-black text-white"><FilePlus2 size={16}/> Create Chapter</button>
         </div>
       </div>
       {novel.autoGenerate&&<div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-xs font-semibold leading-5 text-emerald-800">Auto mode ON है। Build शुरू करने पर existing automatic workflow active रहेगा। Image requests को uncontrolled burst में नहीं भेजा जाएगा।</div>}
@@ -54,8 +66,9 @@ export default function ChaptersPage(){
       ];
       return <article key={chapter.number} className={"overflow-hidden rounded-2xl border bg-white shadow-sm "+(active?"border-violet-300 ring-2 ring-violet-100":"border-slate-200")}>
         <div className="p-4"><div className="flex flex-col gap-3 xl:flex-row xl:items-center">
-          <button onClick={()=>selectChapter(chapter.number)} className="min-w-[220px] flex-1 text-left"><div className="flex flex-wrap items-center gap-2"><span className="text-lg font-black">Chapter {chapter.number}</span>{active&&<span className="rounded-full bg-violet-50 px-2 py-1 text-[10px] font-black uppercase text-violet-700">Active</span>}<span className="text-xs font-bold text-slate-400">{complete}/7 ready</span></div><div className="mt-1 truncate text-sm text-slate-600">{chapter.title||"Untitled chapter"}</div>{chapter.pipeline&&<div className="mt-1 text-[11px] font-bold text-violet-600">{chapter.pipeline.stage.toUpperCase()} · {chapter.pipeline.progress}% · {chapter.pipeline.message}</div>}</button>
+          <button aria-label={"Select Chapter "+chapter.number} onClick={()=>selectChapter(chapter.number)} className="min-w-[220px] flex-1 text-left"><div className="flex flex-wrap items-center gap-2"><span className="text-lg font-black">Chapter {chapter.number}</span>{active&&<span className="rounded-full bg-violet-50 px-2 py-1 text-[10px] font-black uppercase text-violet-700">Active</span>}<span className="text-xs font-bold text-slate-400">{complete}/7 ready</span></div><div className="mt-1 truncate text-sm text-slate-600">{chapter.title||"Untitled chapter"}</div>{chapter.pipeline&&<div className="mt-1 text-[11px] font-bold text-violet-600">{chapter.pipeline.stage.toUpperCase()} · {chapter.pipeline.progress}% · {chapter.pipeline.message}</div>}</button>
           <div className="flex flex-wrap gap-2">
+            <button aria-label={"Delete Chapter "+chapter.number} onClick={()=>setDeleteNumber(chapter.number)} className="inline-flex items-center gap-1.5 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-black text-red-700"><Trash2 size={13}/> Delete</button>
             <button onClick={()=>{selectChapter(chapter.number);setDrafts((d)=>({...d,[chapter.number]:d[chapter.number]??chapter.sourceText}));setOpenInput(inputOpen?null:chapter.number)}} className={"inline-flex items-center gap-1.5 rounded-xl border px-3 py-2 text-xs font-black "+(states[0]?"border-emerald-200 bg-emerald-50 text-emerald-700":"border-slate-200 text-slate-700")}>{states[0]&&<Check size={13}/>} Input Story <ChevronDown size={13}/></button>
             {stepLinks.map((step)=>{const Icon=step.icon;return <Link key={step.label} href={step.href} onClick={()=>selectChapter(chapter.number)} className={"inline-flex items-center gap-1.5 rounded-xl border px-3 py-2 text-xs font-black "+(step.done?"border-emerald-200 bg-emerald-50 text-emerald-700":"border-slate-200 bg-white text-slate-600")}>{step.done?<Check size={13}/>:<Icon size={13}/>} {step.label}{step.label==="Images"&&images.length>0?" "+generated+"/"+images.length:""}</Link>})}
             <Link href="/novel" onClick={()=>selectChapter(chapter.number)} className="inline-flex items-center gap-1.5 rounded-xl bg-violet-600 px-3 py-2 text-xs font-black text-white"><Play size={13}/> {novel.autoGenerate?"Start Auto":"Build"}</Link>

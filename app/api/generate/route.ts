@@ -2,10 +2,10 @@ import {NextResponse} from "next/server";
 import {aspectRatioToSize} from "@/lib/cinematic";
 import {generateImage} from "@/lib/image-providers";
 import {SenseNovaRequestError} from "@/lib/image-providers/sensenova";
-import {coverMode,preflightVisual,inspectGeneratedVisual,VisualSafetyError} from "@/lib/visual-safety";
+import {coverMode,preflightVisual,inspectGeneratedVisual,verifyCharacterSheetImage,VisualSafetyError} from "@/lib/visual-safety";
 export const maxDuration=300;
 export const runtime="nodejs";
-type Body={prompt?:unknown;negativePrompt?:unknown;aspectRatio?:unknown;seed?:unknown;referenceImages?:unknown;referenceLabels?:unknown;provider?:unknown;model?:unknown;visualCoverMode?:unknown};
+type Body={purpose?:unknown;prompt?:unknown;negativePrompt?:unknown;aspectRatio?:unknown;seed?:unknown;referenceImages?:unknown;referenceLabels?:unknown;provider?:unknown;model?:unknown;visualCoverMode?:unknown};
 export async function POST(req:Request){
   try{
     let body:Body;
@@ -29,8 +29,9 @@ export async function POST(req:Request){
     const {width,height}=aspectRatioToSize(aspectRatio);
     const result=await generateImage({prompt:preflight.prompt,negativePrompt:"",seed,width,height,provider,model,referenceImages,referenceLabels});
     const reviewed=await inspectGeneratedVisual(result.imageDataUrl,mode,preflight.adjusted,referenceImages.length);
+    const characterSheet=body.purpose==="character-sheet"?await verifyCharacterSheetImage(reviewed.image):undefined;
     // Do not expose the provider's raw source URL: it could bypass the reviewed delivery.
-    return NextResponse.json({image:reviewed.image,provider:result.provider,model:result.model,seed:result.seed,referenceCount:result.referenceCount,warning:result.warning,effectivePrompt:preflight.prompt,safety:reviewed.safety});
+    return NextResponse.json({image:reviewed.image,provider:result.provider,model:result.model,seed:result.seed,referenceCount:result.referenceCount,warning:result.warning,effectivePrompt:preflight.prompt,safety:reviewed.safety,...(characterSheet?{characterSheet}:{})});
   }catch(error){
     const known=error instanceof SenseNovaRequestError||error instanceof VisualSafetyError;
     if(!known)console.error("Cinematic image request failed",error instanceof Error?error.name:"UnknownError");

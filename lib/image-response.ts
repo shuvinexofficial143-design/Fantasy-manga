@@ -1,5 +1,5 @@
 import type {VisualSafetyReport} from "./types";
-export type ImageResponse={image?:string;provider?:string;model?:string;seed?:number;referenceCount?:number;warning?:string;effectivePrompt?:string;safety?:VisualSafetyReport;error?:string;code?:string};
+export type ImageResponse={image?:string;provider?:string;model?:string;seed?:number;referenceCount?:number;warning?:string;characterSheet?:{layout:"four-view";views:string[]};effectivePrompt?:string;safety?:VisualSafetyReport;error?:string;code?:string};
 export async function readImageResponse(response:Response):Promise<ImageResponse>{
   let data:ImageResponse;
   try{data=await response.json()}catch{

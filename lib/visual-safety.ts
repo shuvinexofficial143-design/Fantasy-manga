@@ -83,3 +83,10 @@ export async function inspectGeneratedVisual(image:string,mode:VisualCoverMode,a
   const report:VisualSafetyReport={promptChecked:true,promptAdjusted:adjusted,referencesChecked,outputChecked:true,redactedRegions:checked.regions.length,coverMode:mode,checkedAt:new Date().toISOString()};
   return {image:delivered,safety:report};
 }
+
+export async function verifyCharacterSheetImage(image:string){
+  const result=await review("CHARACTER TURNAROUND QUALITY CHECK: Inspect the attached image. Return JSON {viewCount:4, views:['front','back','left-profile','right-profile'], allFullBody:true, sameIdentity:true, confident:true}. Count actual drawn views, not text labels. Only use those exact view names when clearly visible. allFullBody means every view shows the top of the head/hair through both feet without cropping. sameIdentity means the same age, person, hairstyle, outfit and body proportions across views. Left and right profiles must be opposite directions and the back view must show the back. If unclear, return confident:false and the actual count/visible views. Do not infer missing poses.",[image],"VISUAL_OUTPUT_BLOCKED");
+  const views=["front","back","left-profile","right-profile"],actualViews=result.views;
+  if(result.viewCount!==4||result.allFullBody!==true||result.sameIdentity!==true||result.confident!==true||!Array.isArray(actualViews)||actualViews.length!==4||!views.every((view)=>actualViews.includes(view)))throw new VisualSafetyError("Character sheet में चारों full-body views साफ़ सत्यापित नहीं हुए। पिछली reference सुरक्षित है। फिर Generate Sheet करें।","CHARACTER_SHEET_LAYOUT_INVALID");
+  return {layout:"four-view" as const,views};
+}

@@ -27,7 +27,7 @@ export function novelReferences(scene:CinematicImage,project:Project,previous?:C
     const earlier=project.images.filter((item)=>item.sceneNumber<scene.sceneNumber&&item.image).sort((a,b)=>a.sceneNumber-b.sceneNumber);
     for(const state of scene.characterStates){
       const character=project.characters.find((item)=>item.id===state.characterId);
-      add(continuity,character?.referenceImage,`Character master: ${character?.name}`);
+      add(continuity,character?.referenceImage,`Character master: ${character?.name}${character?.referenceSheet?" — four-view turnaround of ONE person; choose one natural scene pose and do not duplicate the person four times":""}`);
     }
     if(scene.usePreviousImage){
       if(previous?.image&&previous.sceneNumber<scene.sceneNumber)add(continuity,previous.image,`Previous completed scene ${previous.sceneNumber}`);
@@ -46,11 +46,14 @@ export function novelReferences(scene:CinematicImage,project:Project,previous?:C
       add(continuity,anchor?.image,`Earlier scene ${anchor?.sceneNumber} at ${location.name}; architecture only`);
     }
   }
-  // Reserve room for uploaded style references so the provider cap cannot silently
-  // discard them behind character masters and generated frames.
-  const continuityBudget=Math.max(0,limit-Math.min(styles.length,limit));
-  const refs=[...continuity.slice(0,continuityBudget),...styles].filter((ref,index,all)=>all.findIndex((other)=>other.image===ref.image)===index).slice(0,limit);
-  return {images:refs.map((ref)=>ref.image),labels:refs.map((ref)=>ref.label),styleCount:refs.filter((ref)=>styles.includes(ref)).length,continuityCount:refs.filter((ref)=>continuity.includes(ref)).length};
+  // Identity sheets for every active character come first. Retain uploaded
+  // styles in the remaining capacity rather than losing a second character.
+  const masters=continuity.filter((ref)=>ref.label.startsWith("Character master:"));
+  const other=continuity.filter((ref)=>!masters.includes(ref));
+  const selectedMasters=masters.slice(0,limit),selectedStyles=styles.slice(0,Math.max(0,limit-selectedMasters.length));
+  const extraBudget=Math.max(0,limit-selectedMasters.length-selectedStyles.length);
+  const refs=[...selectedMasters,...other.slice(0,extraBudget),...selectedStyles].filter((ref,index,all)=>all.findIndex((other)=>other.image===ref.image)===index).slice(0,limit);
+  return {images:refs.map((ref)=>ref.image),labels:refs.map((ref)=>ref.label),styleCount:refs.filter((ref)=>styles.includes(ref)).length,continuityCount:refs.filter((ref)=>continuity.includes(ref)).length,omittedCharacterNames:masters.slice(limit).map((ref)=>ref.label.split(": ")[1]?.split(" — ")[0]||"Character")};
 }
 
 export function namedSceneCharacters(states:Array<{name:string;position:string;action:string;direction:string;expression:string;stateNotes:string}>,characters:Character[]):SceneCharacterState[]{

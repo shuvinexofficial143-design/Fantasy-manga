@@ -67,3 +67,11 @@ it("sends no images to text-only xKiro and only one to its single-reference mode
   project.imageModel="openai/gpt-image-2.5";
   expect(novelReferences(scene,project).images).toEqual(["style"]);
 });
+
+it("retains both active character sheets before using the remaining style slots",()=>{
+ const project=createProject();project.imageProvider="sensenova";project.imageModel="sensenova-u1.5-lite";
+ project.characters=[{id:"a",name:"A",role:"lead",appearance:"Adult",outfit:"Blue",referenceImage:"sheet-a"},{id:"b",name:"B",role:"lead",appearance:"Adult",outfit:"Red",referenceImage:"sheet-b"}];
+ project.styleReferences=Array.from({length:4},(_,i)=>({id:"style"+i,name:"style",dataUrl:"style"+i}));
+ const scene=createImage(1,"A and B talk",project.characters.map(c=>({characterId:c.id,position:"left",action:"talk",direction:"right",expression:"calm",stateNotes:""})));
+ const refs=novelReferences(scene,project);expect(refs.images.slice(0,2)).toEqual(["sheet-a","sheet-b"]);expect(refs.images).toHaveLength(5);expect(refs.omittedCharacterNames).toEqual([]);
+});

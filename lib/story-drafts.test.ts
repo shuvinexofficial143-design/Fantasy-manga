@@ -39,3 +39,8 @@ describe("persistent story input drafts",()=>{
     expect(saveStoryDraft(failing,storyDraftKey("p",1),"draft")).toBe(false);
   });
 });
+
+it("separates a recreated chapter's input draft from the deleted chapter with the same number",()=>{
+ expect(storyDraftKey("project",2,0)).not.toBe(storyDraftKey("project",2,1));
+ expect(storyDraftKey("project",2)).toBe(storyDraftKey("project",2,0));
+});

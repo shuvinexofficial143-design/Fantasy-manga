@@ -4,6 +4,7 @@ import {useEffect,useMemo,useState,useSyncExternalStore} from "react";
 import Link from "next/link";
 import {AlertTriangle,BookOpenCheck,FileText,Loader2,Sparkles} from "lucide-react";
 import {chapterSourceKey,splitChapterForDensity} from "@/lib/chapters";
+import {chapterRevision} from "@/lib/chapter-deletion";
 import {createImage} from "@/lib/default-project";
 import {projectImageStyle} from "@/lib/style-presets";
 import {replaceChapterScenes} from "@/lib/novel-workflow";
@@ -92,7 +93,7 @@ export default function NovelImportPage(){
   const novel=project.novelImport||emptyImport();
   const chapterNumber=Math.max(1,novel.currentChapter||1);
   const selectedChapter=useMemo(()=>novel.chapters.find((item)=>item.number===chapterNumber),[novel.chapters,chapterNumber]);
-  const activeDraftKey=storyDraftKey(project.id,chapterNumber);
+  const activeDraftKey=storyDraftKey(project.id,chapterNumber,chapterRevision(project,chapterNumber));
   const [manualByKey,setManualByKey]=useState<Record<string,string>>({});
   const [draftWarning,setDraftWarning]=useState("");
   // Read browser drafts as an external store, without setState in an effect.

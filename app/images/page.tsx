@@ -3,13 +3,14 @@
 import Image from "next/image";
 import Link from "next/link";
 import {AlertTriangle,ImageIcon,Loader2,Palette,Play,Sparkles} from "lucide-react";
-import {useEffect,useState} from "react";
+import {useEffect,useRef,useState} from "react";
 import {useProject} from "@/components/project-provider";
 import {buildCinematicPrompt,hashString} from "@/lib/cinematic";
 import {novelReferences} from "@/lib/novel-continuity";
 import {imageBatchPendingIds,imageFailureAction,isVisualSafetyBlock} from "@/lib/image-batch";
 import {IMAGE_MODELS,selectedImageModel} from "@/lib/image-models";
 import {ImageDirectionControls} from "@/components/image-direction-controls";
+import {ensureSceneCharacterSheets} from "@/lib/character-sheets";
 import {readImageResponse} from "@/lib/image-response";
 import {planSceneVisual} from "@/lib/scene-visual-safety";
 import type {CinematicImage,Project} from "@/lib/types";
@@ -30,6 +31,8 @@ function compactXkiroPrompt(fullPrompt:string){
 export default function ImagesPage(){
   const {project,setState,updateProject}=useProject();
   const [busy,setBusy]=useState("");
+  const generationController=useRef<AbortController|null>(null);
+  useEffect(()=>()=>generationController.current?.abort(),[]);
   const [configured,setConfigured]=useState<Partial<Record<Project["imageProvider"],boolean>>>({});
   useEffect(()=>{let active=true;void fetch("/api/image-models").then((response)=>response.ok?response.json():null).then((data)=>{if(active&&data?.configured)setConfigured(data.configured)}).catch(()=>{});return()=>{active=false}},[]);
   const [progress,setProgress]=useState("");
@@ -45,6 +48,7 @@ export default function ImagesPage(){
   const commit=(next:Project)=>setState((current)=>({...current,projects:current.projects.map((item)=>item.id===next.id?next:item)}));
 
   const generateScene=(sceneId:string,working:Project)=>async()=>{
+    generationController.current?.signal.throwIfAborted();
     const ordered=[...working.images].sort((a,b)=>a.sceneNumber-b.sceneNumber);
     const index=ordered.findIndex((item)=>item.id===sceneId);
     if(index<0)throw new Error("Scene not found.");
@@ -58,7 +62,8 @@ export default function ImagesPage(){
     });
     const prompt=working.imageProvider==="xkiro"?compactXkiroPrompt(fullPrompt):fullPrompt;
     const refs=novelReferences(scene,working,completedPrevious);
-    const response=await fetch("/api/generate",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({
+    if(refs.omittedCharacterNames.length)throw new Error("इस scene के सभी character references model की सीमा में नहीं आते: "+refs.omittedCharacterNames.join(", ")+"। अधिक references लेने वाला model या अलग scene composition चुनें।");
+    const response=await fetch("/api/generate",{signal:generationController.current?.signal,method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({
       prompt,negativePrompt:working.useStylePreset!==false&&working.imageStylePreset==="reference-video"?scene.negativePrompt:"text, captions, logo, collage, duplicate character, inconsistent identity",aspectRatio:working.aspectRatio,
       provider:working.imageProvider,model:working.imageModel,visualCoverMode:working.visualCoverMode,
       seed:scene.seed||hashString(working.id+"|"+scene.characterStates.map((state)=>state.characterId).sort().join("|")+"|"+(scene.locationId||"")),
@@ -78,19 +83,23 @@ export default function ImagesPage(){
   };
 
   const generateOne=async(scene:CinematicImage)=>{
+    generationController.current=new AbortController();
     setBusy(scene.id);setError("");setNotice("");
+    let working=project;
     try{
-      const done=await generateScene(scene.id,project)();
-      commit({...project,images:project.images.map((item)=>item.id===done.id?done:item),updatedAt:new Date().toISOString()});
+      working=await ensureSceneCharacterSheets(working,[scene.id],(next)=>{working=next;commit(next)},setProgress,generationController.current?.signal);
+      const done=await generateScene(scene.id,working)();
+      commit({...working,images:working.images.map((item)=>item.id===done.id?done:item),updatedAt:new Date().toISOString()});
       setNotice("Scene "+scene.sceneNumber+" image generated with "+selectedModel.label+".");
     }catch(reason){
-      commit(recordFailure(project,scene.id,reason));
+      commit(recordFailure(working,scene.id,reason));
       setError(reason instanceof Error?reason.message:"Image generation failed.");
     }finally{setBusy("");setProgress("")}
   };
 
   const generateSequence=async(retryFailed=false)=>{
     if(!chapter||!scenes.length)return;
+    generationController.current=new AbortController();
     setBusy("sequence");setError("");setNotice("");
     let working=project;
     let skippedSensitive=0;
@@ -100,6 +109,7 @@ export default function ImagesPage(){
       // The separate Retry Failed button is an explicit person-triggered retry.
       // Ordinary Generate Remaining never resubmits a provider-refused scene.
       const pendingIds=imageBatchPendingIds(targetIds,working.images,working.imageProvider,retryFailed);
+      working=await ensureSceneCharacterSheets(working,pendingIds,(next)=>{working=next;commit(next)},setProgress,generationController.current?.signal);
       if(working.imageProvider==="xkiro"||working.imageProvider==="sensenova"){
         for(let offset=0;offset<pendingIds.length;offset+=XKIRO_BATCH_SIZE){
           const batch=pendingIds.slice(offset,offset+XKIRO_BATCH_SIZE);
