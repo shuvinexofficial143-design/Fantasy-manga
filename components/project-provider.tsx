@@ -4,6 +4,7 @@ import {createContext,useContext,useEffect,useRef,useState} from "react";
 import {createProject} from "@/lib/default-project";
 import type {NovelImportState,Project,StudioState} from "@/lib/types";
 import {BackgroundChapterPipeline} from "@/components/background-chapter-pipeline";
+import {STYLE_PRESETS} from "@/lib/style-presets";
 
 const STORAGE_KEY="fantasy-cinematic-studio-v3";
 const DB_NAME="fantasy-cinematic-studio";
@@ -66,7 +67,10 @@ function normalizeProject(project:Partial<Project>):Project{
     worldNotes:typeof project.worldNotes==="string"?project.worldNotes:"",
     continuityMode:project.continuityMode==="balanced"?"balanced":"strict",
     visualDensity:project.visualDensity==="highest"||project.visualDensity==="ultra"?project.visualDensity:"standard",
-    imageStylePreset:project.imageStylePreset==="cinematic-realistic"||project.imageStylePreset==="custom"?project.imageStylePreset:"reference-video",
+    imageStylePreset:STYLE_PRESETS.some((preset)=>preset.value===project.imageStylePreset)?project.imageStylePreset!:"reference-video",
+    useStylePreset:project.useStylePreset!==false,
+    useStyleReferences:project.useStyleReferences!==false,
+    useContinuityReferences:project.useContinuityReferences!==false,
     imageProvider:project.imageProvider==="sensenova"?"sensenova":project.imageProvider==="xkiro"?"xkiro":"gemini",
     imageModel:typeof project.imageModel==="string"&&project.imageModel?project.imageModel:"gemini-3.1-flash-image",
     analysisProvider:project.analysisProvider==="xkiro"?"xkiro":"vertex",

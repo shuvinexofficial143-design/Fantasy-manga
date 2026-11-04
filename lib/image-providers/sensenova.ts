@@ -18,13 +18,14 @@ export function classifySenseNovaError(status:number,responseBody:string):SenseN
   try{details=JSON.parse(responseBody) as {error?:{message?:unknown;code?:unknown}}}catch{/* Non-JSON error from the provider. */}
   const message=typeof details?.error?.message==="string"?details.error.message:"";
   const providerCode=String(details?.error?.code??"");
-  if(status===400&&(providerCode==="18"||/sensitive image/i.test(message))){
+  if([400,403,422].includes(status)&&(providerCode==="18"||/sensitive (?:image|content)|content[_ -]?(?:policy|filter)|safety (?:check|policy)/i.test(message))){
     return new SenseNovaRequestError(
-      "SenseNova ने इस scene की image या reference को sensitive बताकर रोक दिया (400, code 18)। Scene content और reference images की समीक्षा करें। इस request को अपने आप दोबारा नहीं भेजा जाएगा।",
-      400,"SENSENOVA_SENSITIVE_IMAGE"
+      "SenseNova ने scene या reference को sensitive बताकर रोका। Visual description और references की समीक्षा करें। यह scene skip होगा; अगली images जारी रहेंगी। अपने आप दोबारा request नहीं भेजी जाएगी।",
+      status,"SENSENOVA_SENSITIVE_IMAGE"
     );
   }
   const shortDetail=(message||responseBody).replace(/\s+/g," ").slice(0,240);
+  if(status===401||status===403)return new SenseNovaRequestError("SenseNova API authorization failed ("+status+")। API key, region और model access जाँचें।",status,"SENSENOVA_AUTH_ERROR");
   if(status===400)return new SenseNovaRequestError(
     "SenseNova ने image request अस्वीकार की (400)"+(shortDetail?": "+shortDetail:"")+". Input या reference format जाँचें।",
     400,"SENSENOVA_INVALID_REQUEST"
@@ -61,7 +62,7 @@ const PROMPT_LIMIT=4800;
 function compactSenseNovaPrompt(full:string){
   if(full.length<=PROMPT_LIMIT)return full;
   const blocks=full.split(/\n\s*\n/).map((part)=>part.trim()).filter(Boolean);
-  const priorities=["MASTER ART-DIRECTION LOCK","COLOR CONSISTENCY","CURRENT STORY MOMENT","CHARACTER BIBLE","CURRENT LOCATION","CAMERA CONTINUITY","UPLOADED STYLE REFERENCE PACK","CONTINUITY STRENGTH","PREVIOUS SCENE STATE","COMPOSITION","LAYOUT","Generate exactly ONE"];
+  const priorities=["CURRENT STORY MOMENT","REFERENCE ROLE MAP","MASTER ART-DIRECTION LOCK","COLOR CONSISTENCY","CHARACTER BIBLE","CURRENT LOCATION","CAMERA CONTINUITY","UPLOADED STYLE REFERENCE PACK","CONTINUITY STRENGTH","PREVIOUS SCENE STATE","COMPOSITION","LAYOUT","Generate exactly ONE"];
   const ranked=[...blocks].sort((a,b)=>{
     const rank=(value:string)=>{const i=priorities.findIndex((prefix)=>value.startsWith(prefix));return i<0?priorities.length:i};
     return rank(a)-rank(b);
@@ -81,32 +82,38 @@ export async function generateSenseNovaImage(input:ImageGenerationInput){
   const key=process.env.SENSENOVA_API_KEY?.trim();
   if(!key)throw new Error("SENSENOVA_API_KEY is not configured.");
   const base=(process.env.SENSENOVA_BASE_URL||BASE_URL).replace(/\/$/,"");
-  const model=process.env.SENSENOVA_IMAGE_MODEL||"sensenova-u1.5-lite";
+  const model=input.model?.trim()||process.env.SENSENOVA_IMAGE_MODEL?.trim()||"sensenova-u1.5-lite";
   // SenseNova /images/edits accepts at most five source images.
-  // Upstream reference ordering: character masters, last two frames, then style/location.
+  // Upstream selection reserves capacity for uploaded styles and attaches role labels.
   const refs=(input.referenceImages||[]).slice(0,5);
   const size=input.width/input.height>1.5?"1536x1024":input.width<input.height?"1024x1536":"1024x1024";
   const normalized=await Promise.all(refs.map(normalizeReference));
+  const referenceMap=refs.map((_,index)=>"Image "+(index+1)+": "+(input.referenceLabels?.[index]||"visual reference")).join("\n");
+  const prompt=compactSenseNovaPrompt([referenceMap?"REFERENCE ROLE MAP:\n"+referenceMap+"\nUse images only for their stated roles. Style references guide rendering and palette; do not copy unrelated subjects or compositions.":"",input.prompt].filter(Boolean).join("\n\n"));
   const payload=refs.length
-    ?{model,images:normalized.map((image_url)=>({image_url})),prompt:compactSenseNovaPrompt(input.prompt),n:1,size:"auto",watermark:true,prompt_extend:true,response_format:"url"}
-    :{model,prompt:compactSenseNovaPrompt(input.prompt),n:1,size,watermark:true,prompt_extend:true,response_format:"url"};
-  const response=await fetch(base+(refs.length?"/images/edits":"/images/generations"),{
+    ?{model,images:normalized.map((image_url)=>({image_url})),prompt,n:1,size:"auto",watermark:true,prompt_extend:false,response_format:"url"}
+    :{model,prompt,n:1,size,watermark:true,prompt_extend:false,response_format:"url"};
+  let response:Response;
+  try{response=await fetch(base+(refs.length?"/images/edits":"/images/generations"),{
     method:"POST",
     headers:{Authorization:"Bearer "+key,"Content-Type":"application/json"},
     body:JSON.stringify(payload),
-    cache:"no-store"
-  });
+    cache:"no-store",signal:AbortSignal.timeout(180_000)
+  })}catch(reason){
+    const timeout=reason instanceof Error&&["TimeoutError","AbortError"].includes(reason.name);
+    throw new SenseNovaRequestError(timeout?"SenseNova generation timeout। Provider request की स्थिति जाँचकर retry करें।":"SenseNova network request failed। Connection जाँचें और retry करें।",timeout?504:502,timeout?"SENSENOVA_TIMEOUT":"SENSENOVA_NETWORK_ERROR");
+  }
   if(!response.ok){
     const detail=(await response.text().catch(()=>"")).slice(0,600);
     throw classifySenseNovaError(response.status,detail);
   }
   const result=await response.json() as {data?:Array<{url?:string;b64_json?:string}>};
   const item=result.data?.[0];
-  if(item?.b64_json)return {imageDataUrl:"data:image/png;base64,"+item.b64_json,referenceCount:refs.length};
+  if(item?.b64_json)return {imageDataUrl:"data:image/png;base64,"+item.b64_json,referenceCount:refs.length,model};
   if(!item?.url)throw new Error("SenseNova returned no usable image. Check direct API response compatibility.");
-  const downloaded=await fetch(item.url,{cache:"no-store"});
+  const downloaded=await fetch(item.url,{cache:"no-store",signal:AbortSignal.timeout(20_000)});
   if(!downloaded.ok)throw new Error("SenseNova generated image download failed.");
   const mime=downloaded.headers.get("content-type")||"image/png";
   const bytes=Buffer.from(await downloaded.arrayBuffer());
-  return {imageDataUrl:"data:"+mime+";base64,"+bytes.toString("base64"),referenceCount:refs.length};
+  return {imageDataUrl:"data:"+mime+";base64,"+bytes.toString("base64"),referenceCount:refs.length,model};
 }

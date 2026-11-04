@@ -3,22 +3,16 @@
 import Image from "next/image";
 import Link from "next/link";
 import {AlertTriangle,ImageIcon,Loader2,Palette,Play,Sparkles} from "lucide-react";
-import {useState} from "react";
+import {useEffect,useState} from "react";
 import {useProject} from "@/components/project-provider";
 import {buildCinematicPrompt,hashString} from "@/lib/cinematic";
 import {novelReferences} from "@/lib/novel-continuity";
 import {imageBatchPendingIds,imageFailureAction} from "@/lib/image-batch";
+import {IMAGE_MODELS,selectedImageModel} from "@/lib/image-models";
+import {ImageDirectionControls} from "@/components/image-direction-controls";
+import {readImageResponse} from "@/lib/image-response";
+import {planSceneVisual} from "@/lib/scene-visual-safety";
 import type {CinematicImage,Project} from "@/lib/types";
-
-const IMAGE_MODELS=[
-  {provider:"sensenova" as const,model:"sensenova-u1.5-lite",label:"SenseNova · U1.5 Lite (Direct API)",note:"Direct SenseNova API · character master + previous two frames sent to reference edit endpoint; unsupported edits report an error"},
-  {provider:"gemini" as const,model:"gemini-3.1-flash-lite-image",label:"Google Cloud · Gemini 3.1 Flash-Lite Image (Nano Banana 2 Lite)",note:"Current Google image model · fastest/lowest-cost option"},
-  {provider:"gemini" as const,model:"gemini-3.1-flash-image",label:"Google Cloud · Gemini 3.1 Flash Image (Nano Banana 2)",note:"Current Google image model · existing default"},
-  {provider:"gemini" as const,model:"gemini-3-pro-image",label:"Google Cloud · Gemini 3 Pro Image (Nano Banana Pro)",note:"Current Google image model · higher-end image generation"},
-  {provider:"gemini" as const,model:"gemini-2.5-flash-image",label:"Google Cloud · Gemini 2.5 Flash Image",note:"Current Google image model · supported until March 15, 2027"},
-  {provider:"xkiro" as const,model:"sensenova/sensenova-u1.5-lite",label:"xKiro · SenseNova U1.5 Lite",note:"Free image tier · sequential reference-guided generation"},
-  {provider:"xkiro" as const,model:"openai/gpt-image-2.5",label:"xKiro · GPT Image 2.5",note:"Paid image model · controlled 12-image parallel waves"}
-];
 
 const XKIRO_BATCH_SIZE=1;
 const GEMINI_INITIAL_CONCURRENCY=2;
@@ -36,6 +30,8 @@ function compactXkiroPrompt(fullPrompt:string){
 export default function ImagesPage(){
   const {project,setState,updateProject}=useProject();
   const [busy,setBusy]=useState("");
+  const [configured,setConfigured]=useState<Partial<Record<Project["imageProvider"],boolean>>>({});
+  useEffect(()=>{let active=true;void fetch("/api/image-models").then((response)=>response.ok?response.json():null).then((data)=>{if(active&&data?.configured)setConfigured(data.configured)}).catch(()=>{});return()=>{active=false}},[]);
   const [progress,setProgress]=useState("");
   const [notice,setNotice]=useState("");
   const [error,setError]=useState("");
@@ -43,7 +39,7 @@ export default function ImagesPage(){
   const chapter=novel.chapters.find((item)=>item.number===novel.currentChapter);
   const scenes=(chapter?.sceneIds||[]).map((id)=>project.images.find((image)=>image.id===id)).filter((image):image is CinematicImage=>Boolean(image));
 
-  const selectedModel=IMAGE_MODELS.find((item)=>item.provider===project.imageProvider&&item.model===project.imageModel)||IMAGE_MODELS[0];
+  const selectedModel=selectedImageModel(project);
   const selectModel=(provider:"gemini"|"xkiro"|"sensenova",model:string)=>updateProject((p)=>({...p,imageProvider:provider,imageModel:model,updatedAt:new Date().toISOString()}));
 
   const commit=(next:Project)=>setState((current)=>({...current,projects:current.projects.map((item)=>item.id===next.id?next:item)}));
@@ -62,28 +58,14 @@ export default function ImagesPage(){
     });
     const prompt=working.imageProvider==="xkiro"?compactXkiroPrompt(fullPrompt):fullPrompt;
     const refs=novelReferences(scene,working,completedPrevious);
-    // Match the actual five-image SenseNova edit limit before posting large data URLs.
-    if(working.imageProvider==="sensenova"){
-      refs.images=refs.images.slice(0,5);
-      refs.labels=refs.labels.slice(0,5);
-    }
-    if(working.imageProvider==="xkiro"&&working.imageModel==="openai/gpt-image-2.5"){
-      const recent=[...ordered.slice(0,index)].reverse().find((item)=>Boolean(item.image));
-      if(recent?.image){refs.images.unshift(recent.image);refs.labels.unshift("Immediate preceding completed scene: prioritize visual continuity");}
-    }
     const response=await fetch("/api/generate",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({
-      prompt,negativePrompt:scene.negativePrompt,aspectRatio:working.aspectRatio,
+      prompt,negativePrompt:working.useStylePreset!==false&&working.imageStylePreset==="reference-video"?scene.negativePrompt:"text, captions, logo, collage, duplicate character, inconsistent identity",aspectRatio:working.aspectRatio,
       provider:working.imageProvider,model:working.imageModel,
       seed:scene.seed||hashString(working.id+"|"+scene.characterStates.map((state)=>state.characterId).sort().join("|")+"|"+(scene.locationId||"")),
       referenceImages:refs.images,referenceLabels:refs.labels
     })});
-    const data=await response.json() as {image?:string;provider?:string;model?:string;seed?:number;referenceCount?:number;warning?:string;error?:string;code?:string};
-    if(!response.ok||!data.image){
-      const failure=new Error(data.error||"Image generation failed.") as Error&{code?:string};
-      failure.code=data.code;
-      throw failure;
-    }
-    return {...scene,image:data.image,provider:data.provider,model:data.model,seed:data.seed,referenceCount:data.referenceCount,status:"completed" as const,error:undefined,failureCode:undefined};
+    const data=await readImageResponse(response);
+    return {...scene,prompt,image:data.image,provider:data.provider,model:data.model,seed:data.seed,referenceCount:data.referenceCount,status:"completed" as const,error:undefined,failureCode:undefined};
   };
 
   const recordFailure=(working:Project,sceneId:string,reason:unknown):Project=>{
@@ -107,14 +89,17 @@ export default function ImagesPage(){
     }finally{setBusy("");setProgress("")}
   };
 
-  const generateSequence=async()=>{
+  const generateSequence=async(retryFailed=false)=>{
     if(!chapter||!scenes.length)return;
     setBusy("sequence");setError("");setNotice("");
     let working=project;
     let skippedSensitive=0;
     try{
       // A provider-blocked scene must be reviewed manually before it is retried.
-      const pendingIds=imageBatchPendingIds(chapter.sceneIds,working.images,working.imageProvider);
+      const targetIds=retryFailed?chapter.sceneIds.filter((id)=>working.images.find((scene)=>scene.id===id)?.status==="failed"):chapter.sceneIds;
+      // The separate Retry Failed button is an explicit person-triggered retry.
+      // Ordinary Generate Remaining never resubmits a provider-refused scene.
+      const pendingIds=imageBatchPendingIds(targetIds,working.images,working.imageProvider,retryFailed);
       if(working.imageProvider==="xkiro"||working.imageProvider==="sensenova"){
         for(let offset=0;offset<pendingIds.length;offset+=XKIRO_BATCH_SIZE){
           const batch=pendingIds.slice(offset,offset+XKIRO_BATCH_SIZE);
@@ -146,9 +131,15 @@ export default function ImagesPage(){
         while(offset<pendingIds.length){
           const batch=pendingIds.slice(offset,offset+concurrency);
           setProgress("Google Cloud Gemini · "+Math.min(offset+batch.length,pendingIds.length)+" / "+pendingIds.length+" · "+batch.length+" images parallel generate हो रही हैं…");
-          const results=await Promise.all(batch.map((id)=>generateScene(id,working)()));
-          working={...working,images:working.images.map((item)=>results.find((done)=>done.id===item.id)||item),updatedAt:new Date().toISOString()};
+          const results=await Promise.allSettled(batch.map((id)=>generateScene(id,working)()));
+          for(const [index,result] of results.entries()){
+            working=result.status==="fulfilled"
+              ?{...working,images:working.images.map((item)=>item.id===result.value.id?result.value:item),updatedAt:new Date().toISOString()}
+              :recordFailure(working,batch[index],result.reason);
+          }
           commit(working);
+          const failed=results.find((result)=>result.status==="rejected");
+          if(failed?.status==="rejected")throw failed.reason;
           offset+=batch.length;
           if(concurrency<GEMINI_MAX_CONCURRENCY&&offset<pendingIds.length)concurrency=Math.min(GEMINI_MAX_CONCURRENCY,concurrency+1);
         }
@@ -175,6 +166,7 @@ export default function ImagesPage(){
 
   const remainingUnblocked=imageBatchPendingIds(chapter?.sceneIds||[],project.images,project.imageProvider).length;
   const ready=scenes.filter((scene)=>Boolean(scene.image)).length;
+  const failedCount=scenes.filter((scene)=>!scene.image&&scene.status==="failed").length;
   const styleReferenceCount=(project.styleReferences||[]).length;
 
   return <div className="mx-auto max-w-6xl space-y-6">
@@ -185,26 +177,29 @@ export default function ImagesPage(){
           <div className="flex flex-wrap gap-2">
             <Link href="/references" className="inline-flex items-center justify-center gap-2 rounded-xl border border-fuchsia-200 bg-fuchsia-50 px-4 py-2.5 text-sm font-black text-fuchsia-700"><Palette size={16}/> References {styleReferenceCount}/4</Link>
             {remainingUnblocked>0&&<button disabled={!!busy} onClick={()=>void generateSequence()} className="inline-flex items-center justify-center gap-2 rounded-xl bg-violet-600 px-4 py-2.5 text-sm font-black text-white disabled:opacity-50"><Sparkles size={16}/> Generate Remaining</button>}
+            {failedCount>0&&<button disabled={!!busy} onClick={()=>void generateSequence(true)} title="Visual descriptions और references की समीक्षा करके retry करें" className="inline-flex items-center justify-center gap-2 rounded-xl border border-amber-300 bg-amber-50 px-4 py-2.5 text-sm font-black text-amber-900 disabled:opacity-50"><Play size={16}/> Retry Failed ({failedCount})</button>}
           </div>
         </div>
         <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
           <div className="mb-2 text-xs font-black uppercase tracking-wider text-slate-500">Image Model</div>
           <select value={selectedModel.provider+"|"+selectedModel.model} onChange={(e)=>{const [provider,...rest]=e.target.value.split("|");selectModel(provider as "gemini"|"xkiro"|"sensenova",rest.join("|"))}} disabled={!!busy} className="w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm font-bold">
-            {IMAGE_MODELS.map((item)=><option key={item.provider+"|"+item.model} value={item.provider+"|"+item.model}>{item.label}</option>)}
+            {!IMAGE_MODELS.some((item)=>item.model===project.imageModel&&item.provider===project.imageProvider)&&<option value={selectedModel.provider+"|"+selectedModel.model}>{selectedModel.label}</option>}{IMAGE_MODELS.map((item)=><option key={item.provider+"|"+item.model} value={item.provider+"|"+item.model}>{item.label}</option>)}
           </select>
-          <div className="mt-2 text-xs text-slate-500">{selectedModel.note}. {selectedModel.provider==="xkiro"||selectedModel.provider==="sensenova"?"Sequential jobs are submitted in sequentially, using previously completed images for continuity.":"Google Cloud image models use controlled parallel waves (2 → 4) with the existing provider retry/backoff protection."}</div>
+          <div className="mt-2 text-xs font-bold text-slate-600">{configured[project.imageProvider]===true?"API credentials configured (live generation अभी verify नहीं हुई)":configured[project.imageProvider]===false?"इस provider के API credentials configured नहीं हैं":"API configuration status उपलब्ध नहीं है"}</div>
+          <div className="mt-2 text-xs text-slate-500">{selectedModel.note}. {selectedModel.provider==="xkiro"||selectedModel.provider==="sensenova"?"Images क्रम से बनेंगी। Enabled references लागू होंगी।":"Google Cloud image models use controlled parallel waves (2 → 4) with the existing provider retry/backoff protection."}</div>
         </div>
       </div>
     </section>
 
-    {styleReferenceCount>0&&<div className="rounded-xl border border-fuchsia-100 bg-fuchsia-50 p-3 text-xs text-fuchsia-800">Reference images: {styleReferenceCount} style reference(s) मौजूद हैं। Character master और पिछली दो completed images को प्राथमिकता दी जाएगी। {project.imageProvider==="sensenova"?"SenseNova edit API की reference compatibility अभी पूरी तरह verified नहीं है।":""}</div>}
+    <ImageDirectionControls disabled={!!busy}/>
+    {styleReferenceCount>0&&<div className="rounded-xl border border-fuchsia-100 bg-fuchsia-50 p-3 text-xs text-fuchsia-800">{project.useStyleReferences===false?"Uploaded style references बंद हैं।":"Uploaded style references चालू हैं।"} {styleReferenceCount} saved. ऊपर दिए switches से references चुनें।</div>}
     {progress&&<div className="rounded-2xl border border-violet-200 bg-violet-50 p-4 text-sm font-medium text-violet-800"><Loader2 className="mr-2 inline animate-spin" size={15}/>{progress}</div>}
     {notice&&<div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm font-medium text-emerald-800">{notice}</div>}
     {error&&<div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm font-medium text-red-700"><AlertTriangle className="mr-2 inline" size={15}/>{error}</div>}
 
     {scenes.length?<div className="grid gap-5 lg:grid-cols-2">{scenes.map((scene,index)=><article key={scene.id} className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
       <div className="relative aspect-video bg-slate-100">{scene.image?<Image src={scene.image} alt={scene.title} fill unoptimized sizes="(max-width: 1024px) 100vw, 50vw" className="object-cover"/>:<div className="grid h-full place-items-center text-slate-300"><ImageIcon size={38}/></div>}</div>
-      <div className="p-4"><div className="flex items-start justify-between gap-3"><div><div className="text-xs font-black uppercase tracking-wider text-violet-600">Visual {index+1} · Scene {scene.sceneNumber}</div><div className="mt-1 font-black text-slate-900">{scene.title}</div></div><span className="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-black uppercase text-slate-500">{scene.status}</span></div><div className="mt-3 line-clamp-3 text-sm leading-5 text-slate-500">{scene.sourceText}</div>{scene.status==="failed"&&scene.error&&<div role="alert" className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-900">{scene.error}{scene.failureCode==="SENSENOVA_SENSITIVE_IMAGE"&&<div className="mt-2 border-t border-amber-200 pt-2"><strong>Reference roles:</strong> {novelReferences(scene,project).labels.slice(0,5).join(" · ")||"No reference images"}<p className="mt-2">यह scene skip हुआ है। अगली images Generate Remaining से बनेंगी। जरूरत पड़ने पर सिर्फ इस scene को Retry Image से फिर चलाएँ।</p><Link href="/references" className="mt-2 inline-block font-bold underline">Review References</Link></div>}</div>}{!scene.image&&<button disabled={!!busy} onClick={()=>void generateOne(scene)} className="mt-4 inline-flex items-center gap-2 rounded-xl bg-slate-900 px-3.5 py-2.5 text-xs font-bold text-white disabled:opacity-50">{busy===scene.id?<Loader2 className="animate-spin" size={14}/>:<Play size={14}/>} {scene.status==="failed"?"Retry Image":"Generate Image"}</button>}</div>
+      <div className="p-4"><div className="flex items-start justify-between gap-3"><div><div className="text-xs font-black uppercase tracking-wider text-violet-600">Visual {index+1} · Scene {scene.sceneNumber}</div><div className="mt-1 font-black text-slate-900">{scene.title}</div></div><span className="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-black uppercase text-slate-500">{scene.status}</span></div><div className="mt-3 line-clamp-3 text-sm leading-5 text-slate-500">{scene.sourceText}</div>{scene.status==="failed"&&scene.error&&<div role="alert" className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-900">{scene.error}{scene.failureCode==="SENSENOVA_SENSITIVE_IMAGE"&&<div className="mt-2 border-t border-amber-200 pt-2"><strong>Reference roles:</strong> {novelReferences(scene,project).labels.slice(0,5).join(" · ")||"No reference images"}<p className="mt-2">यह scene skip हुआ है। अगली images Generate Remaining से बनेंगी। Visual description और references की समीक्षा करके सिर्फ इस scene को Retry Image से चलाएँ।</p><Link href="/references" className="mt-2 inline-block font-bold underline">Review References</Link></div>}</div>}{!scene.image&&scene.status==="failed"&&<label className="mt-3 block text-xs font-bold text-slate-700">Visual description सुधारें (केवल image के लिए)<textarea aria-label={"Visual description for scene "+scene.sceneNumber} disabled={!!busy} value={scene.visualDescription??planSceneVisual(scene.sourceText).moment} onChange={(e)=>updateProject((p)=>({...p,images:p.images.map((item)=>item.id===scene.id?{...item,visualDescription:e.target.value}:item),updatedAt:new Date().toISOString()}))} className="mt-2 min-h-28 w-full rounded-xl border border-slate-200 p-3 font-normal"/><span className="mt-1 block font-normal text-slate-500">चेहरे की reaction, सुरक्षित setting और off-screen action बताएँ। References की भी समीक्षा करें, फिर Retry Image दबाएँ।</span></label>}{!scene.image&&<button disabled={!!busy} onClick={()=>void generateOne(scene)} className="mt-4 inline-flex items-center gap-2 rounded-xl bg-slate-900 px-3.5 py-2.5 text-xs font-bold text-white disabled:opacity-50">{busy===scene.id?<Loader2 className="animate-spin" size={14}/>:<Play size={14}/>} {scene.status==="failed"?"Retry Image":"Generate Image"}</button>}</div>
     </article>)}</div>:<section className="rounded-2xl border border-dashed border-slate-300 bg-white p-10 text-center"><ImageIcon className="mx-auto text-slate-300" size={36}/><div className="mt-3 font-black text-slate-700">Generate करने के लिए analyzed visuals नहीं हैं</div><div className="mt-2 text-sm text-slate-500">पहले Story Input page पर chapter analyze करें।</div><Link href="/novel" className="mt-4 inline-block rounded-xl bg-violet-600 px-4 py-2.5 text-sm font-bold text-white">Go to Story Input</Link></section>}
   </div>;
 }

@@ -23,3 +23,11 @@ describe("POST /api/generate SenseNova safety errors",()=>{
     expect(body.error).toMatch(/sensitive/);
   });
 });
+
+it("keeps authorization and rate-limit failures distinct from safety rejection",async()=>{
+  for(const [status,code] of [[401,"SENSENOVA_AUTH_ERROR"],[429,"SENSENOVA_RATE_LIMIT"]] as const){
+    vi.mocked(generateImage).mockRejectedValueOnce(classifySenseNovaError(status,'{"error":{"message":"test"}}'));
+    const response=await POST(validRequest());expect(response.status).toBe(status);
+    const body=await response.json();expect(body.code).toBe(code);expect(body.retryable).toBe(status===429);
+  }
+});

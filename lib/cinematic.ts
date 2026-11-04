@@ -1,6 +1,7 @@
-import type {Character,CinematicImage,Location,Project,SceneCharacterState} from "./types";
+import type {Character,CinematicImage,Project,SceneCharacterState} from "./types";
 import {projectImageStyle,REFERENCE_VIDEO_NEGATIVE_STYLE} from "./style-presets";
 import {planSceneVisual,sceneNeedsVisualAdaptation} from "./scene-visual-safety";
+import {novelReferences} from "./novel-continuity";
 
 export function aspectRatioToSize(aspectRatio:string){
   if(aspectRatio==="9:16")return {width:768,height:1365};
@@ -36,28 +37,29 @@ export function summarizeSceneContinuity(scene:CinematicImage,project:Project){
 export function buildCinematicPrompt({scene,project,previousScene}:{scene:CinematicImage;project:Project;previousScene?:CinematicImage}){
   // Compute the image-safe visual beat while building the FINAL image prompt,
   // not after a failed provider request. Never mutate sourceText or analysis.
-  const visual=planSceneVisual(scene.sourceText);
-  const adjusted=visual.adjusted;
+  const visual=planSceneVisual(scene.visualDescription?.trim()||scene.sourceText);
+  const context=[scene.continuityNotes,...scene.characterStates.flatMap((state)=>[state.action,state.stateNotes,state.expression])].join("\n");
+  const adjusted=visual.adjusted||sceneNeedsVisualAdaptation(context);
   const activeCharacters=scene.characterStates.map((state)=>({
     state,character:project.characters.find((item)=>item.id===state.characterId)
   })).filter((item):item is {state:SceneCharacterState;character:Character}=>Boolean(item.character));
   const location=project.locations.find((item)=>item.id===scene.locationId);
-  const safeDetail=(value:string|undefined,fallback:string)=>adjusted&&value&&sceneNeedsVisualAdaptation(value)?fallback:value||fallback;
+  const safeDetail=(value:string|undefined,fallback:string)=>value&&sceneNeedsVisualAdaptation(value)?fallback:value||fallback;
   const characterBible=activeCharacters.length?activeCharacters.map(({character,state})=>[
-    `${character.name} (${character.role})`,
+    `${safeDetail(character.name,"established character")} (${safeDetail(character.role,"recurring character")})`,
     `fixed identity: ${safeDetail(character.appearance,"preserve established face, hair and proportions")}`,
     `established outfit: ${safeDetail(character.outfit,"preserve established intact clothing and colors")}`,
-    !adjusted&&character.continuityNotes?`locked character facts: ${character.continuityNotes}`:"",
+    !adjusted&&character.continuityNotes?`locked character facts: ${safeDetail(character.continuityNotes,"preserve canonical identity and intact clothing")}`:"",
     adjusted?`current position: ${safeDetail(state.position,"preserve prior placement")}; facing: ${safeDetail(state.direction,"preserve screen direction")}; expression: ${safeDetail(state.expression,"story-appropriate response")}`:
-      `current state: ${stateText(state,character)}`
+      `current state: ${safeDetail(stateText(state,character),"preserve identity, placement and intact clothing; show an expressive reaction")}`
   ].filter(Boolean).join("; ")).join("\n"):"No additional recurring person is required unless the current visual introduces one.";
   const previousText=adjusted
     ?"Keep the established character identities, architecture, costume colors, lighting, landmarks and screen direction from the previous completed frame."
-    :previousScene?summarizeSceneContinuity(previousScene,project):
+    :previousScene?safeDetail(summarizeSceneContinuity(previousScene,project),"Preserve established faces, intact clothing, architecture, palette and screen direction from the previous frame."):
       "This is the first frame; establish the canonical screen geography clearly.";
-  const lockedStyle=projectImageStyle(project);
-  const styleReferenceCount=(project.styleReferences||[]).length+(project.styleReferenceImage?1:0);
-  const styleBoundary=project.imageStylePreset==="reference-video"
+  const lockedStyle=safeDetail(projectImageStyle(project),"Cohesive full-color fantasy illustration with expressive characters and atmospheric lighting");
+  const styleReferenceCount=novelReferences(scene,project,previousScene).styleCount;
+  const styleBoundary=project.useStylePreset!==false&&project.imageStylePreset==="reference-video"
     ?`REFERENCE-VIDEO STYLE BOUNDARY: Do not turn this into a photograph or live-action still. Do not use plastic 3D/CGI, western-cartoon proportions, chibi, flat TV-anime screenshot rendering or comic/manga panel layout. Avoid: ${REFERENCE_VIDEO_NEGATIVE_STYLE}.`
     :"";
   return [
@@ -66,22 +68,22 @@ export function buildCinematicPrompt({scene,project,previousScene}:{scene:Cinema
     "COLOR CONSISTENCY: Keep the same rich full-color palette and cinematic color grading from the project style references and previous frames. Never automatically switch the image to black-and-white, monochrome or grayscale.",
     styleBoundary,
     styleReferenceCount?`UPLOADED STYLE REFERENCE PACK: ${Math.min(styleReferenceCount,4)} project style reference image(s) are attached for facial-design language, rendering, lighting, palette, atmosphere, material details and cinematic finish. Do not copy their unrelated subjects or composition.`:"",
-    !adjusted&&project.worldNotes?`WORLD BIBLE: ${project.worldNotes}`:"",
+    !adjusted&&project.worldNotes?`WORLD BIBLE: ${safeDetail(project.worldNotes,"preserve the established fantasy world")}`:"",
     `CURRENT STORY MOMENT: ${visual.moment}`,
     `CURRENT LOCATION: ${location
-      ?adjusted?`${location.name}; lighting=${location.lighting}; preserve established architecture and landmarks`:
-        `${location.name} — ${location.description}; lighting=${location.lighting}; locked facts=${location.continuityNotes||"preserve architecture and landmark placement"}`
+      ?adjusted?`${safeDetail(location.name,"established setting")}; lighting=${safeDetail(location.lighting,"atmospheric lighting")}; preserve established architecture and landmarks`:
+        safeDetail(`${location.name} — ${location.description}; lighting=${location.lighting}; locked facts=${location.continuityNotes||"preserve architecture and landmark placement"}`,"Preserve established architecture, landmarks and atmospheric lighting")
       :"Continue the established location unless the story changes it."}`,
     `CHARACTER BIBLE + CURRENT STATE:\n${characterBible}`,
     `CAMERA CONTINUITY: shot=${safeDetail(scene.cameraShot,"medium reaction shot")}; angle=${safeDetail(scene.cameraAngle,"eye level")}; screen direction=${safeDetail(scene.cameraDirection,"preserve previous screen direction")}. Preserve left/right geography and eye lines.`,
     `PREVIOUS SCENE STATE:\n${previousText}`,
-    !adjusted&&scene.continuityNotes?`CURRENT CONTINUITY NOTES: ${scene.continuityNotes}`:"",
+    !adjusted&&scene.continuityNotes?`CURRENT CONTINUITY NOTES: ${safeDetail(scene.continuityNotes,"preserve identity and setting")}`:"",
     adjusted
       ?`CONTINUITY STRENGTH: ${scene.continuityStrength}/100. Preserve identity, costume, setting, character count, props outside the camera's focus, light direction and scene geography. Use an expressive camera angle, natural occlusion or shallow depth of field for the distant action.`
       :`CONTINUITY STRENGTH: ${scene.continuityStrength}/100. Identity, costume, injuries, carried props, location geometry, time of day, light direction, character count and screen geography are hard constraints. Only story-authorized action, pose, expression and camera framing should change.`,
     "REFERENCE PRIORITY: character masters define identity and outfit; location masters define environment; previous completed frame defines colors, atmosphere, shot continuity, landmarks and screen direction.",
     "CONSISTENCY: preserve recurring faces, outfits, visual language and background landmarks; do not add unrelated people, objects, on-screen text or narrative details.",
-    "COMPOSITION: one premium full-color animated-film keyframe, unified cinematic frame, intentional lens, depth, atmospheric perspective, polished lighting and color grading.",
+    "COMPOSITION: one premium full-color story keyframe in the selected medium, unified cinematic frame, intentional lens, depth, atmospheric perspective, polished lighting and color grading.",
     "LAYOUT: no manga panels, webtoon panels, comic gutters, captions, speech bubbles, watermark, logo or UI."
   ].filter(Boolean).join("\n\n");
 }

@@ -50,3 +50,33 @@ describe("automatic safe image scene framing",()=>{
     expect(buildCinematicPrompt({scene,project})).toContain("CURRENT STORY MOMENT: Lucien enters a jewel-colored castle.");
   });
 });
+
+it("removes graphic details in auxiliary notes even for an ordinary source moment",()=>{
+  const project=createProject(),scene=createImage(2,"Lucien enters the hall.");
+  project.characters=[{id:"hero",name:"Lucien",role:"lead",appearance:"Black hair",outfit:"blood-soaked cloak",continuityNotes:"open wound"}];
+  scene.characterStates=[{characterId:"hero",position:"left",action:"bleeding profusely",direction:"right",expression:"calm",stateNotes:"exposed organs"}];
+  scene.continuityNotes="A blood-soaked floor";
+  const previous=createImage(1,"A meeting.");previous.title="The dead body";
+  const prompt=buildCinematicPrompt({scene,project,previousScene:previous});
+  expect(prompt).toContain("Lucien enters the hall.");
+  expect(prompt).not.toMatch(/blood-soaked|open wound|bleeding profusely|exposed organs|dead body/i);
+  expect(scene.characterStates[0].action).toBe("bleeding profusely");
+});
+
+it("adapts Hindi visual harm while preserving the source",()=>{
+  const text="उसने चाकू सीने में घोंप दिया। खून बह रहा था।";
+  const scene=createImage(1,text),project=createProject();
+  expect(planSceneVisual(text).adjusted).toBe(true);
+  expect(buildCinematicPrompt({scene,project})).not.toContain(text);
+  expect(scene.sourceText).toBe(text);
+});
+
+it("honors a user-edited safe visual without editing narration or leaking old action notes",()=>{
+  const scene=createImage(1,"Someone thrust a sword into Lucien's chest."),project=createProject();
+  scene.visualDescription="Lucien looks toward the castle window at sunrise.";
+  scene.continuityNotes="Someone thrust a sword into Lucien's chest.";
+  const prompt=buildCinematicPrompt({scene,project});
+  expect(prompt).toContain(scene.visualDescription);
+  expect(prompt).not.toContain(scene.sourceText);
+  expect(scene.sourceText).toContain("sword");
+});
