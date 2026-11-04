@@ -1,11 +1,14 @@
-import {beforeEach,describe,it,expect,vi} from "vitest";
+import {afterEach,beforeEach,describe,it,expect,vi} from "vitest";
 import sharp from "sharp";
 import {generateVertexText} from "./vertex-text";
+import {generateXkiroVisualReview} from "./xkiro";
 import {inspectGeneratedVisual,preflightVisual,outputDecision} from "./visual-safety";
 vi.mock("./vertex-text",()=>({generateVertexText:vi.fn()}));
+vi.mock("./xkiro",async(importOriginal)=>({...await importOriginal<typeof import("./xkiro")>(),generateXkiroVisualReview:vi.fn()}));
 const answer=(value:unknown)=>vi.mocked(generateVertexText).mockResolvedValueOnce(JSON.stringify(value));
 async function image(){return "data:image/png;base64,"+(await sharp({create:{width:100,height:100,channels:3,background:"blue"}}).png().toBuffer()).toString("base64")}
-beforeEach(()=>vi.resetAllMocks());
+beforeEach(()=>{vi.resetAllMocks();vi.stubEnv("IMAGE_SAFETY_PROVIDER","vertex")});
+afterEach(()=>vi.unstubAllEnvs());
 describe("semantic prompt and reference preflight",()=>{
   it("reviews every reference before approving an ordinary prompt",async()=>{
     answer({decision:"allow",prompt:"ignored model modification"});
@@ -65,4 +68,17 @@ it("rejects inconsistent allow verdicts instead of overlooking reported regions 
   expect(outputDecision({decision:"allow",category:"prohibited",regions:[]}).decision).toBe("block");
   expect(outputDecision({decision:"allow",category:"none",regions:[{x:0,y:0,width:.3,height:.3}]}).decision).toBe("block");
   expect(outputDecision({decision:"allow",category:"none",regions:[]}).decision).toBe("allow");
+});
+
+it("selects the already-configured xKiro vision reviewer before any call, without depending on Google billing",async()=>{
+  vi.stubEnv("IMAGE_SAFETY_PROVIDER","");vi.stubEnv("IMAGE_SAFETY_MODEL","");vi.stubEnv("XKIRO_API_KEY","fixture");
+  vi.mocked(generateXkiroVisualReview).mockResolvedValueOnce('{"decision":"allow"}');
+  expect(await preflightVisual("A castle",[],[],"auto")).toEqual({prompt:"A castle",adjusted:false});
+  expect(generateVertexText).not.toHaveBeenCalled();expect(vi.mocked(generateXkiroVisualReview).mock.calls[0][1]).toBe("sensenova/sensenova-6.8-flash-lite");
+});
+it("does not move to Google after the selected xKiro reviewer refuses content",async()=>{
+  vi.stubEnv("IMAGE_SAFETY_PROVIDER","xkiro");
+  vi.mocked(generateXkiroVisualReview).mockRejectedValueOnce(Object.assign(new Error("Refused"),{code:"REVIEW_CONTENT_BLOCKED"}));
+  await expect(preflightVisual("A scene",[],[],"auto")).rejects.toMatchObject({code:"VISUAL_PREFLIGHT_BLOCKED"});
+  expect(generateVertexText).not.toHaveBeenCalled();expect(generateXkiroVisualReview).toHaveBeenCalledTimes(1);
 });
