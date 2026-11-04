@@ -14,6 +14,7 @@ export type Character={
   continuityNotes?:string;
   locked?:boolean;
   referenceImage?:string;
+  referenceSheet?:{layout:"four-view";designKey:string;views:string[];generatedAt:string;provider:string;model:string;prompt:string;safety?:VisualSafetyReport};
 };
 
 export type Location={
@@ -81,6 +82,7 @@ export type NovelChapter={
 };
 
 export type NovelImportState={
+  chapterRevisions?:Record<string,number>;
   novelTitle:string;
   locked:boolean;
   sourceOrigin?:string;

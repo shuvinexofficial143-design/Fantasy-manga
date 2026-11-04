@@ -2,7 +2,7 @@ import {afterEach,beforeEach,describe,it,expect,vi} from "vitest";
 import sharp from "sharp";
 import {generateVertexText} from "./vertex-text";
 import {generateXkiroVisualReview} from "./xkiro";
-import {inspectGeneratedVisual,preflightVisual,outputDecision} from "./visual-safety";
+import {inspectGeneratedVisual,preflightVisual,outputDecision,verifyCharacterSheetImage} from "./visual-safety";
 vi.mock("./vertex-text",()=>({generateVertexText:vi.fn()}));
 vi.mock("./xkiro",async(importOriginal)=>({...await importOriginal<typeof import("./xkiro")>(),generateXkiroVisualReview:vi.fn()}));
 const answer=(value:unknown)=>vi.mocked(generateVertexText).mockResolvedValueOnce(JSON.stringify(value));
@@ -81,4 +81,13 @@ it("does not move to Google after the selected xKiro reviewer refuses content",a
   vi.mocked(generateXkiroVisualReview).mockRejectedValueOnce(Object.assign(new Error("Refused"),{code:"REVIEW_CONTENT_BLOCKED"}));
   await expect(preflightVisual("A scene",[],[],"auto")).rejects.toMatchObject({code:"VISUAL_PREFLIGHT_BLOCKED"});
   expect(generateVertexText).not.toHaveBeenCalled();expect(generateXkiroVisualReview).toHaveBeenCalledTimes(1);
+});
+
+it("accepts a complete four-view full-body sheet and rejects cropped or missing views",async()=>{
+ answer({viewCount:4,views:["front","back","left-profile","right-profile"],allFullBody:true,sameIdentity:true,confident:true});
+ expect((await verifyCharacterSheetImage(await image())).layout).toBe("four-view");
+ answer({viewCount:3,views:["front","back","left-profile"],allFullBody:true,sameIdentity:true,confident:true});
+ await expect(verifyCharacterSheetImage(await image())).rejects.toMatchObject({code:"CHARACTER_SHEET_LAYOUT_INVALID"});
+ answer({viewCount:4,views:["front","back","left-profile","right-profile"],allFullBody:false,sameIdentity:true,confident:true});
+ await expect(verifyCharacterSheetImage(await image())).rejects.toMatchObject({code:"CHARACTER_SHEET_LAYOUT_INVALID"});
 });

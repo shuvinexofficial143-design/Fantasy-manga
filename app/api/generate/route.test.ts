@@ -1,13 +1,13 @@
 import {beforeEach,describe,expect,it,vi} from "vitest";
 import {generateImage} from "@/lib/image-providers";
 import {classifySenseNovaError} from "@/lib/image-providers/sensenova";
-import {preflightVisual,inspectGeneratedVisual,VisualSafetyError} from "@/lib/visual-safety";
+import {preflightVisual,inspectGeneratedVisual,verifyCharacterSheetImage,VisualSafetyError} from "@/lib/visual-safety";
 import {POST} from "./route";
 
 vi.mock("@/lib/image-providers",()=>({generateImage:vi.fn()}));
 vi.mock("@/lib/visual-safety",async(importOriginal)=>{
   const actual=await importOriginal<typeof import("@/lib/visual-safety")>();
-  return {...actual,preflightVisual:vi.fn(),inspectGeneratedVisual:vi.fn()};
+  return {...actual,preflightVisual:vi.fn(),inspectGeneratedVisual:vi.fn(),verifyCharacterSheetImage:vi.fn()};
 });
 beforeEach(()=>{
   vi.resetAllMocks();
@@ -65,4 +65,11 @@ it("fails closed even if a caller claims approval when the review service is una
   vi.mocked(preflightVisual).mockRejectedValueOnce(new VisualSafetyError("Review unavailable","VISUAL_SAFETY_UNAVAILABLE",503));
   const request=new Request("http://localhost/api/generate",{method:"POST",body:JSON.stringify({prompt:"A castle",safetyApproved:true})});
   const response=await POST(request);expect(response.status).toBe(503);expect(generateImage).not.toHaveBeenCalled();
+});
+
+it("does not save or return a character sheet that fails four-view layout verification",async()=>{
+ vi.mocked(generateImage).mockResolvedValueOnce({imageDataUrl:"raw image",model:"test",provider:"sensenova",seed:1,referenceCount:0});
+ vi.mocked(verifyCharacterSheetImage).mockRejectedValueOnce(new VisualSafetyError("Missing view","CHARACTER_SHEET_LAYOUT_INVALID"));
+ const request=new Request("http://localhost/api/generate",{method:"POST",body:JSON.stringify({prompt:"A four-view character sheet",purpose:"character-sheet"})});
+ const response=await POST(request),body=await response.json();expect(response.status).toBe(422);expect(body.image).toBeUndefined();expect(body.code).toBe("CHARACTER_SHEET_LAYOUT_INVALID");
 });

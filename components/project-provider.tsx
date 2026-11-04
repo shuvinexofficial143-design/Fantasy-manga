@@ -1,9 +1,10 @@
 "use client";
 
-import {createContext,useContext,useEffect,useRef,useState} from "react";
+import {createContext,useContext,useEffect,useRef,useState,useCallback} from "react";
 import {createProject} from "@/lib/default-project";
 import type {NovelImportState,Project,StudioState} from "@/lib/types";
 import {BackgroundChapterPipeline} from "@/components/background-chapter-pipeline";
+import {protectDeletedChapters} from "@/lib/chapter-deletion";
 import {STYLE_PRESETS} from "@/lib/style-presets";
 
 const STORAGE_KEY="fantasy-cinematic-studio-v3";
@@ -103,7 +104,8 @@ function normalizeState(value:unknown):StudioState|null{
 }
 
 export function ProjectProvider({children}:{children:React.ReactNode}){
-  const [state,setState]=useState<StudioState>(initialState);
+  const [state,rawSetState]=useState<StudioState>(initialState);
+  const setState=useCallback<React.Dispatch<React.SetStateAction<StudioState>>>((action)=>rawSetState((current)=>protectDeletedChapters(current,typeof action==="function"?action(current):action)),[]);
   const [hydrated,setHydrated]=useState(false);
   const [persistenceError,setPersistenceError]=useState("");
   const saveQueue=useRef<Promise<void>>(Promise.resolve());
@@ -123,7 +125,7 @@ export function ProjectProvider({children}:{children:React.ReactNode}){
       }
     }catch{}
     finally{if(mounted)setHydrated(true)}
-  })().finally(()=>{if(mounted)setHydrated(true)});return()=>{mounted=false}},[]);
+  })().finally(()=>{if(mounted)setHydrated(true)});return()=>{mounted=false}},[setState]);
 
   useEffect(()=>{
     if(!hydrated)return;

@@ -2,8 +2,8 @@
 // appear inside a different project/chapter after navigation or a page refresh.
 const DRAFT_PREFIX="fantasy-manga:story-draft:v1:";
 
-export function storyDraftKey(projectId:string,chapterNumber:number){
-  return DRAFT_PREFIX+encodeURIComponent(projectId)+":"+Math.max(1,Math.trunc(chapterNumber));
+export function storyDraftKey(projectId:string,chapterNumber:number,revision=0){
+  return DRAFT_PREFIX+encodeURIComponent(projectId)+":"+Math.max(1,Math.trunc(chapterNumber))+(revision>0?":r"+revision:"");
 }
 
 export function storyInputValue(draft:string|undefined,chapterSource:string|undefined){

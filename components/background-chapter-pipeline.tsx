@@ -7,6 +7,8 @@ import {projectImageStyle} from "@/lib/style-presets";
 import {findLocation,findNamed,namedSceneCharacters} from "@/lib/novel-continuity";
 import type {Character,ChapterAnalysisProgress,Location,NovelChapter,Project,StudioState} from "@/lib/types";
 
+import {chapterRevision,isChapterJobCurrent} from "@/lib/chapter-deletion";
+
 const MAX_CHAPTER_JOBS=3;
 const uid=()=>typeof crypto!=="undefined"&&"randomUUID" in crypto?crypto.randomUUID():String(Date.now())+"-"+Math.random().toString(36).slice(2);
 const sleep=(ms:number)=>new Promise((resolve)=>setTimeout(resolve,ms));
@@ -61,22 +63,22 @@ export function BackgroundChapterPipeline({state,setState}:{state:StudioState;se
    if(!novel?.autoGenerate)continue;
    const candidates=novel.chapters.filter((chapter)=>chapter.sourceText?.trim().length>=120&&["draft","scanned"].includes(chapter.status)&&chapter.pipeline?.stage!=="error");
    for(const chapter of candidates){
-    const key=project.id+":"+chapter.number;
+    const key=project.id+":"+chapter.number+":"+chapterRevision(project,chapter.number);
     if(running.current.has(key)||running.current.size>=MAX_CHAPTER_JOBS)continue;
     running.current.add(key);
-    void runAnalysis(project.id,chapter.number).finally(()=>running.current.delete(key));
+    void runAnalysis(project.id,chapter.number,chapterRevision(project,chapter.number)).finally(()=>running.current.delete(key));
    }
   }
 
-  async function runAnalysis(projectId:string,chapterNumber:number){
+  async function runAnalysis(projectId:string,chapterNumber:number,revision:number){
    const getProject=()=>stateRef.current.projects.find((p)=>p.id===projectId);
    const patchChapter=(fn:(chapter:NovelChapter)=>NovelChapter)=>setState((current)=>({...current,projects:current.projects.map((p)=>{
-    if(p.id!==projectId)return p;
+    if(p.id!==projectId||!isChapterJobCurrent(p,chapterNumber,revision))return p;
     const novel=p.novelImport;if(!novel)return p;
     return {...p,novelImport:{...novel,chapters:novel.chapters.map((c)=>c.number===chapterNumber?fn(c):c)},updatedAt:new Date().toISOString()};
    })}));
    try{
-    let project=getProject();if(!project?.novelImport)return;
+    let project=getProject();if(!project?.novelImport||!isChapterJobCurrent(project,chapterNumber,revision))return;
     const chapter=project.novelImport.chapters.find((c)=>c.number===chapterNumber);if(!chapter)return;
     const parts=splitChapterForDensity(chapter.sourceText,project.visualDensity);
     const sourceKey=chapterSourceKey(chapter.sourceText,project.visualDensity,project.imageStylePreset);
@@ -96,7 +98,7 @@ export function BackgroundChapterPipeline({state,setState}:{state:StudioState;se
      return result;
     }));
 
-    project=getProject();if(!project?.novelImport)return;
+    project=getProject();if(!project?.novelImport||!isChapterJobCurrent(project,chapterNumber,revision))return;
     let characters=project.characters,locations=project.locations;
     const scenes=[] as Project["images"];
     const partSummaries:string[]=[],partExplainers:string[]=[],partSceneIds:string[][]=[];
@@ -117,7 +119,7 @@ export function BackgroundChapterPipeline({state,setState}:{state:StudioState;se
     }
     const progress:ChapterAnalysisProgress={sourceKey,totalParts:parts.length,completedParts:parts.length,status:"processing",partSummaries,partExplainers,partSceneIds,updatedAt:new Date().toISOString()};
     setState((current)=>({...current,projects:current.projects.map((p)=>{
-     if(p.id!==projectId||!p.novelImport)return p;
+     if(p.id!==projectId||!p.novelImport||!isChapterJobCurrent(p,chapterNumber,revision))return p;
      const oldIds=new Set(p.novelImport.chapters.find((c)=>c.number===chapterNumber)?.sceneIds||[]);
      return {...p,characters:mergeCharacters(p.characters,analyses.flatMap((a)=>a.characters||[])),locations:mergeLocations(p.locations,analyses.flatMap((a)=>a.locations||[])),images:[...p.images.filter((img)=>!oldIds.has(img.id)),...scenes],novelImport:{...p.novelImport,chapters:p.novelImport.chapters.map((c)=>c.number===chapterNumber?{...c,summary:partSummaries.join(" "),explainer:partExplainers.join("\n\n"),sceneIds:scenes.map((s)=>s.id),analysisProgress:progress,pipeline:{stage:"polishing",progress:70,message:"Final explainer polish हो रहा है…",updatedAt:new Date().toISOString()}}:c)},updatedAt:new Date().toISOString()};
     })}));
