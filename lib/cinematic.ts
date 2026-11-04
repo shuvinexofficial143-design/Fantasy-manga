@@ -53,10 +53,11 @@ export function buildCinematicPrompt({scene,project,previousScene}:{scene:Cinema
     adjusted?`current position: ${safeDetail(state.position,"preserve prior placement")}; facing: ${safeDetail(state.direction,"preserve screen direction")}; expression: ${safeDetail(state.expression,"story-appropriate response")}`:
       `current state: ${safeDetail(stateText(state,character),"preserve identity, placement and intact clothing; show an expressive reaction")}`
   ].filter(Boolean).join("; ")).join("\n"):"No additional recurring person is required unless the current visual introduces one.";
-  const previousText=adjusted
-    ?"Keep the established character identities, architecture, costume colors, lighting, landmarks and screen direction from the previous completed frame."
-    :previousScene?safeDetail(summarizeSceneContinuity(previousScene,project),"Preserve established faces, intact clothing, architecture, palette and screen direction from the previous frame."):
-      "This is the first frame; establish the canonical screen geography clearly.";
+  // Previous frames supply visual continuity, not their story action or wounds.
+  // A quiet next scene must not inherit a violent flashback in its text prompt.
+  const previousText=previousScene
+    ?"Use the attached previous frame only for established faces, intact clothing, architecture, palette, lighting, landmarks and screen direction. Depict only the CURRENT STORY MOMENT; carry forward visual design rather than previous story actions."
+    :"This is the first frame; establish the canonical screen geography clearly.";
   const lockedStyle=safeDetail(projectImageStyle(project),"Cohesive full-color fantasy illustration with expressive characters and atmospheric lighting");
   const styleReferenceCount=novelReferences(scene,project,previousScene).styleCount;
   const styleBoundary=project.useStylePreset!==false&&project.imageStylePreset==="reference-video"
@@ -81,7 +82,7 @@ export function buildCinematicPrompt({scene,project,previousScene}:{scene:Cinema
     !adjusted&&scene.continuityNotes?`CURRENT CONTINUITY NOTES: ${safeDetail(scene.continuityNotes,"preserve identity and setting")}`:"",
     adjusted
       ?`CONTINUITY STRENGTH: ${scene.continuityStrength}/100. Preserve identity, costume, setting, character count, props outside the camera's focus, light direction and scene geography. Use an expressive camera angle, natural occlusion or shallow depth of field for the distant action.`
-      :`CONTINUITY STRENGTH: ${scene.continuityStrength}/100. Identity, costume, injuries, carried props, location geometry, time of day, light direction, character count and screen geography are hard constraints. Only story-authorized action, pose, expression and camera framing should change.`,
+      :`CONTINUITY STRENGTH: ${scene.continuityStrength}/100. Identity, intact costume, story-relevant carried props, location geometry, time of day, light direction, character count and screen geography are hard constraints. Only story-authorized action, pose, expression and camera framing should change.`,
     "REFERENCE PRIORITY: character masters define identity and outfit; location masters define environment; previous completed frame defines colors, atmosphere, shot continuity, landmarks and screen direction.",
     "CONSISTENCY: preserve recurring faces, outfits, visual language and background landmarks; do not add unrelated people, objects, on-screen text or narrative details.",
     "COMPOSITION: one premium full-color story keyframe in the selected medium, unified cinematic frame, intentional lens, depth, atmospheric perspective, polished lighting and color grading.",

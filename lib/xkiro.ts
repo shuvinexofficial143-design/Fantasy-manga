@@ -1,3 +1,4 @@
+import {ReviewServiceError,reviewHttpError} from "./review-service";
 const BASE_URL="https://api.xkiro.com/v1";
 
 type XkiroModel={id:string;display_name?:string;modality?:string;access_tier?:string;pricing?:{input?:number|string;output?:number|string};capabilities?:Record<string,unknown>;context_length?:number;max_output_tokens?:number};
@@ -111,23 +112,31 @@ export async function generateXkiroImage(prompt:string,model:string,width:number
 }
 
 let visualModelCatalog:{expires:number;models:XkiroModel[]}|null=null;
-/** Single-attempt visual review. Never switch models or drop images on refusal. */
-export async function generateXkiroVisualReview(prompt:string,model:string,images:Array<{mimeType:string;data:string}>){
-  const key=apiKey();if(!key)throw new Error("Visual reviewer is not configured");
-  if(!visualModelCatalog||visualModelCatalog.expires<Date.now()){
-    const response=await fetch(`${BASE_URL}/models?modality=chat`,{cache:"no-store",signal:AbortSignal.timeout(8000)});
-    if(!response.ok)throw new Error("Visual model capability check unavailable");
-    const payload=await response.json() as {data?:XkiroModel[]};
-    visualModelCatalog={expires:Date.now()+300_000,models:payload.data||[]};
-  }
-  const selected=visualModelCatalog.models.find((item)=>item.id===model);
-  // xKiro can strip images on text-only models; never accept such a review.
-  if(selected?.capabilities?.vision!==true)throw new Error("Reviewer model does not support verified image input");
+let visualCatalogPending:Promise<void>|null=null;
+async function ensureVisualCatalog(){
+  if(visualModelCatalog&&visualModelCatalog.expires>Date.now())return;
+  if(!visualCatalogPending)visualCatalogPending=(async()=>{
+    const response=await fetch(`${BASE_URL}/models?modality=chat`,{cache:"no-store",signal:AbortSignal.timeout(10_000)});
+    if(!response.ok)throw reviewHttpError(response.status,response.headers.get("retry-after"));
+    let payload:{data?:XkiroModel[]};
+    try{payload=await response.json()}catch{throw new ReviewServiceError("invalid-response",true)}
+    if(!Array.isArray(payload.data))throw new ReviewServiceError("invalid-response",true);
+    visualModelCatalog={expires:Date.now()+300_000,models:payload.data};
+  })().finally(()=>{visualCatalogPending=null});
+  await visualCatalogPending;
+}
+/** One service attempt. The caller may recover transient infrastructure errors only. */
+export async function generateXkiroVisualReview(prompt:string,model:string,images:Array<{mimeType:string;data:string}>,timeoutMs=35_000){
+  const key=apiKey();if(!key)throw new ReviewServiceError("configuration");
+  await ensureVisualCatalog();
+  const selected=visualModelCatalog?.models.find((item)=>item.id===model);
+  if(selected?.capabilities?.vision!==true)throw Object.assign(new ReviewServiceError("configuration"),{message:"Reviewer model does not support verified image input"});
   const content=[{type:"text",text:prompt},...images.map((image)=>({type:"image_url",image_url:{url:`data:${image.mimeType};base64,${image.data}`}}))];
-  const response=await fetch(`${BASE_URL}/chat/completions`,{method:"POST",headers:{Authorization:`Bearer ${key}`,"Content-Type":"application/json"},body:JSON.stringify({model,messages:[{role:"user",content}],temperature:0,max_tokens:4096,response_format:{type:"json_object"},...(model==="sensenova/sensenova-6.8-flash-lite"?{reasoning_effort:"none"}:{})}),signal:AbortSignal.timeout(20_000),cache:"no-store"});
-  const payload=await response.json() as {error?:{code?:string};choices?:Array<{finish_reason?:string;message?:{content?:string;refusal?:string}}>};
+  const response=await fetch(`${BASE_URL}/chat/completions`,{method:"POST",headers:{Authorization:`Bearer ${key}`,"Content-Type":"application/json"},body:JSON.stringify({model,messages:[{role:"user",content}],temperature:0,max_tokens:4096,response_format:{type:"json_object"},...(model==="sensenova/sensenova-6.8-flash-lite"?{reasoning_effort:"none"}:{})}),signal:AbortSignal.timeout(timeoutMs),cache:"no-store"});
+  let payload:{error?:{code?:string};choices?:Array<{finish_reason?:string;message?:{content?:string;refusal?:string}}>};
+  try{payload=await response.json()}catch{throw response.ok?new ReviewServiceError("invalid-response",true):reviewHttpError(response.status,response.headers.get("retry-after"))}
   if(payload.error?.code==="content_filter"||payload.choices?.some((choice)=>choice.finish_reason==="content_filter"||Boolean(choice.message?.refusal)))throw Object.assign(new Error("Visual reviewer refused content"),{code:"REVIEW_CONTENT_BLOCKED"});
-  if(!response.ok)throw new Error("Visual reviewer request failed ("+response.status+")");
-  const result=payload.choices?.[0]?.message?.content?.trim();if(!result)throw new Error("Visual reviewer returned no usable result");
+  if(!response.ok)throw reviewHttpError(response.status,response.headers.get("retry-after"));
+  const result=payload.choices?.[0]?.message?.content?.trim();if(!result)throw new ReviewServiceError("invalid-response",true);
   return result;
 }

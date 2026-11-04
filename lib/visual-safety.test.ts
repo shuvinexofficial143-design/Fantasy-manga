@@ -82,17 +82,35 @@ it("does not move to Google after the selected xKiro reviewer refuses content",a
   await expect(preflightVisual("A scene",[],[],"auto")).rejects.toMatchObject({code:"VISUAL_PREFLIGHT_BLOCKED"});
   expect(generateVertexText).not.toHaveBeenCalled();expect(generateXkiroVisualReview).toHaveBeenCalledTimes(1);
 });
+it("retries the same output review once on a timeout, retaining the identical image",async()=>{
+ vi.mocked(generateVertexText).mockRejectedValueOnce(new DOMException("timeout","TimeoutError"));answer({decision:"allow",category:"none",regions:[]});
+ const result=await inspectGeneratedVisual(await image(),"auto",false,0);
+ expect(result.safety.outputChecked).toBe(true);expect(generateVertexText).toHaveBeenCalledTimes(2);
+ const calls=vi.mocked(generateVertexText).mock.calls;expect(calls[0][0]).toBe(calls[1][0]);expect(calls[0][1]?.images).toEqual(calls[1][1]?.images);
+});
+it("checks original age and identity context when a provider-sized prompt was shortened",async()=>{
+ answer({decision:"allow"});answer({decision:"block"});
+ await expect(preflightVisual("Lucien raises a hand.",[],[],"auto",4800,"Lucien is a 12-year-old child in a fully clothed scene.")).rejects.toMatchObject({code:"VISUAL_PREFLIGHT_BLOCKED"});
+ const calls=vi.mocked(generateVertexText).mock.calls;
+ expect(calls).toHaveLength(2);expect(calls[1][0]).toContain("12-year-old child");expect(calls[1][0]).toContain("Never age up a child");
+});
 
 it("independently observes both profile crops and rejects duplicate or cropped views",async()=>{
- const layout={viewCount:4,fourColumns:true,firstTwoDirections:["toward-viewer","away"],allFullBody:true,sameIdentity:true,confident:true};
- const left={noseDirection:"image-left",toeDirection:"image-left"},right={noseDirection:"image-right",toeDirection:"image-right"};
- const respond=(value:unknown,a:unknown=left,b:unknown=right)=>{answer(value);answer(a);answer(b)};
- respond(layout);expect((await verifyCharacterSheetImage(await image())).layout).toBe("four-view");
- expect(generateVertexText).toHaveBeenCalledTimes(3);
- expect(vi.mocked(generateVertexText).mock.calls.every(call=>call[1]?.images?.length===1)).toBe(true);
- for(const invalid of [{...layout,viewCount:3},{...layout,allFullBody:false},{...layout,firstTwoDirections:["toward-viewer","toward-viewer"]}]){
-  respond(invalid);await expect(verifyCharacterSheetImage(await image())).rejects.toMatchObject({code:"CHARACTER_SHEET_LAYOUT_INVALID"});
+ let layout={viewCount:4,fourColumns:true,firstTwoDirections:["toward-viewer","away"],allFullBody:true,sameIdentity:true,confident:true};
+ const left={noseDirection:"image-left",toeDirection:"image-left"};
+ let right={noseDirection:"image-right",toeDirection:"image-right"};
+ const fixture="data:image/png;base64,"+(await sharp({create:{width:100,height:100,channels:3,background:"blue"}}).composite(await Promise.all(["green","red"].map(async(background,index)=>({input:await sharp({create:{width:25,height:100,channels:3,background}}).png().toBuffer(),left:50+index*25,top:0})))).png().toBuffer()).toString("base64");
+ vi.mocked(generateVertexText).mockImplementation(async(prompt,options)=>{
+  if(prompt.includes("OBSERVE DRAWN FIGURES"))return JSON.stringify(layout);
+  const stats=await sharp(Buffer.from(options!.images![0].data,"base64")).stats();
+  return JSON.stringify(stats.channels[1].mean>stats.channels[0].mean?left:right);
+ });
+ expect((await verifyCharacterSheetImage(fixture)).layout).toBe("four-view");
+ expect(generateVertexText).toHaveBeenCalledTimes(3);expect(vi.mocked(generateVertexText).mock.calls.every(call=>call[1]?.images?.length===1)).toBe(true);
+ const complete={...layout};
+ for(const invalid of [{...complete,viewCount:3},{...complete,allFullBody:false},{...complete,firstTwoDirections:["toward-viewer","toward-viewer"]}]){
+  layout=invalid;await expect(verifyCharacterSheetImage(fixture)).rejects.toMatchObject({code:"CHARACTER_SHEET_LAYOUT_INVALID"});
  }
- respond(layout,left,left);await expect(verifyCharacterSheetImage(await image())).rejects.toMatchObject({code:"CHARACTER_SHEET_LAYOUT_INVALID"});
- respond(layout,left,{noseDirection:"uncertain",toeDirection:"image-right"});await expect(verifyCharacterSheetImage(await image())).rejects.toMatchObject({code:"CHARACTER_SHEET_LAYOUT_INVALID"});
+ layout=complete;right=left;await expect(verifyCharacterSheetImage(fixture)).rejects.toMatchObject({code:"CHARACTER_SHEET_LAYOUT_INVALID"});
+ right={noseDirection:"uncertain",toeDirection:"image-right"};await expect(verifyCharacterSheetImage(fixture)).rejects.toMatchObject({code:"CHARACTER_SHEET_LAYOUT_INVALID"});
 });

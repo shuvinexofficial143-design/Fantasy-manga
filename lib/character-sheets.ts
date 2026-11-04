@@ -2,6 +2,7 @@ import type {Character,Project} from "./types";
 import {projectImageStyle} from "./style-presets";
 import {hashString} from "./cinematic";
 import {selectedImageModel} from "./image-models";
+import {isVisualSafetyBlock} from "./image-batch";
 import {readImageResponse} from "./image-response";
 
 export const CHARACTER_SHEET_VIEWS=["front","back","left-profile","right-profile"] as const;
@@ -17,7 +18,7 @@ export function characterSheetPrompt(character:Character,project:Project){
     "If an identity image is attached, use it for THIS character's face, age and hairstyle. The current canonical description overrides outdated costume details in an older reference. Uploaded style images guide rendering only, never copy their people. This four-view layout is required only for this character model sheet; future story scenes will use a single story-appropriate pose."
   ].join("\n\n");
 }
-export async function generateCharacterSheet(character:Character,project:Project,signal?:AbortSignal):Promise<Character>{
+export function characterSheetRequest(character:Character,project:Project){
   const capability=selectedImageModel(project);
   if(!capability.maxReferences)throw new Error("Character sheets को scenes में इस्तेमाल करने के लिए Images पेज पर reference-support वाला model चुनें।");
   const refs:Array<{image:string;label:string}>=[];
@@ -27,20 +28,40 @@ export async function generateCharacterSheet(character:Character,project:Project
     if(!project.styleReferences?.length&&project.styleReferenceImage)refs.push({image:project.styleReferenceImage,label:"Style reference: visual language only"});
   }
   const chosen=refs.slice(0,capability.maxReferences);
-  const response=await fetch("/api/generate",{signal,method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({purpose:"character-sheet",prompt:characterSheetPrompt(character,project),aspectRatio:"16:9",provider:project.imageProvider,model:project.imageModel,visualCoverMode:project.visualCoverMode,seed:hashString(project.id+"|character-sheet|"+character.id),referenceImages:chosen.map((ref)=>ref.image),referenceLabels:chosen.map((ref)=>ref.label)})});
+  return {purpose:"character-sheet",prompt:characterSheetPrompt(character,project),aspectRatio:"16:9",provider:project.imageProvider,model:project.imageModel,visualCoverMode:project.visualCoverMode,seed:hashString(project.id+"|character-sheet|"+character.id),referenceImages:chosen.map((ref)=>ref.image),referenceLabels:chosen.map((ref)=>ref.label)};
+}
+export async function generateCharacterSheet(character:Character,project:Project,signal?:AbortSignal):Promise<Character>{
+  try{
+  const response=await fetch("/api/generate",{signal,method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(characterSheetRequest(character,project))});
   const data=await readImageResponse(response);
   if(data.characterSheet?.layout!=="four-view")throw new Error("चारों full-body views सत्यापित नहीं हुए। पिछली reference सुरक्षित है; फिर कोशिश करें।");
-  return {...character,referenceImage:data.image,referenceSheet:{layout:"four-view",designKey:characterSheetDesignKey(character),views:[...CHARACTER_SHEET_VIEWS],generatedAt:new Date().toISOString(),provider:data.provider||project.imageProvider,model:data.model||project.imageModel,prompt:data.effectivePrompt||characterSheetPrompt(character,project),safety:data.safety}};
+  return {...character,sheetFailure:undefined,referenceImage:data.image,referenceSheet:{layout:"four-view",designKey:characterSheetDesignKey(character),views:[...CHARACTER_SHEET_VIEWS],generatedAt:new Date().toISOString(),provider:data.provider||project.imageProvider,model:data.model||project.imageModel,prompt:data.effectivePrompt||characterSheetPrompt(character,project),safety:data.safety}};
+  }catch(error){throw Object.assign(error instanceof Error?error:new Error("Character sheet failed"),{characterId:character.id,characterName:character.name})}
 }
-export async function ensureSceneCharacterSheets(project:Project,sceneIds:string[],onSaved:(project:Project)=>void,onProgress:(message:string)=>void,signal?:AbortSignal){
+export function characterSheetFailure(character:Character,error:unknown):NonNullable<Character["sheetFailure"]>{
+  const value=error as {code?:string;diagnostics?:import("./types").ImageFailureDiagnostics};
+  const diagnostics=value?.diagnostics?{...value.diagnostics,target:"character-sheet" as const,characterId:character.id,characterName:character.name}:undefined;
+  return {error:error instanceof Error?error.message:"Character sheet failed",code:value?.code,designKey:characterSheetDesignKey(character),diagnostics,at:new Date().toISOString()};
+}
+export async function ensureSceneCharacterSheets(project:Project,sceneIds:string[],onSaved:(project:Project)=>void,onProgress:(message:string)=>void,signal?:AbortSignal,manualRetryCharacters=new Set<string>()){
   if(project.useContinuityReferences===false||selectedImageModel(project).maxReferences===0)return project;
   const ids=new Set(sceneIds.flatMap((id)=>project.images.find((scene)=>scene.id===id)?.characterStates.map((state)=>state.characterId)||[]));
   let working=project;
   for(const character of working.characters.filter((item)=>ids.has(item.id)&&!isCharacterSheetReady(item))){
     signal?.throwIfAborted();
+    const failure=character.sheetFailure;
+    const blocked=failure?.designKey===characterSheetDesignKey(character)&&(failure.code==="SENSENOVA_SENSITIVE_IMAGE"||isVisualSafetyBlock(failure.code));
+    if(blocked&&!manualRetryCharacters.has(character.id))throw Object.assign(new Error(failure.error),{code:failure.code,diagnostics:failure.diagnostics,characterId:character.id,characterName:character.name});
+    manualRetryCharacters.delete(character.id);
     onProgress(character.name+": front, back, left और right full-body sheet बन रही है…");
-    const done=await generateCharacterSheet(character,working,signal);
-    working={...working,characters:working.characters.map((item)=>item.id===done.id?done:item),updatedAt:new Date().toISOString()};onSaved(working);
+    try{
+      const done=await generateCharacterSheet(character,working,signal);
+      working={...working,characters:working.characters.map((item)=>item.id===done.id?done:item),updatedAt:new Date().toISOString()};onSaved(working);
+    }catch(error){
+      const sheetFailure=characterSheetFailure(character,error);
+      working={...working,characters:working.characters.map((item)=>item.id===character.id?{...item,sheetFailure}:item),updatedAt:new Date().toISOString()};onSaved(working);
+      throw Object.assign(error instanceof Error?error:new Error(sheetFailure.error),{diagnostics:sheetFailure.diagnostics});
+    }
   }
   return working;
 }

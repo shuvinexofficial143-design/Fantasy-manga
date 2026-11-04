@@ -73,3 +73,21 @@ it("does not save or return a character sheet that fails four-view layout verifi
  const request=new Request("http://localhost/api/generate",{method:"POST",body:JSON.stringify({prompt:"A four-view character sheet",purpose:"character-sheet"})});
  const response=await POST(request),body=await response.json();expect(response.status).toBe(422);expect(body.image).toBeUndefined();expect(body.code).toBe("CHARACTER_SHEET_LAYOUT_INVALID");
 });
+
+it("reviews the final provider-sized prompt and never mutates it after approval",async()=>{
+ const prompt="MASTER ART-DIRECTION LOCK: Full-color anime.\n\nCURRENT STORY MOMENT: Lucien raises a hand, fully clothed.\n\n"+"Other background notes. ".repeat(300);
+ vi.mocked(generateImage).mockRejectedValueOnce(classifySenseNovaError(400,'{"error":{"code":18,"message":"sensitive image"}}'));
+ const response=await POST(new Request("http://localhost/api/generate",{method:"POST",body:JSON.stringify({provider:"sensenova",prompt,referenceImages:["reference"],referenceLabels:["Character master: Lucien (Child)"]})}));
+ const body=await response.json(),input=vi.mocked(preflightVisual).mock.calls[0][0],sent=vi.mocked(generateImage).mock.calls[0][0];
+ expect(input.length).toBeLessThanOrEqual(4800);expect(input).toContain("Character master: Lucien (Child)");
+ expect(sent.prompt).toBe(input);expect(sent.promptPrepared).toBe(true);
+ expect(body.diagnostics).toMatchObject({stage:"generation",kind:"provider-policy",providerCode:"18",imageGenerated:false,providerPrompt:sent.prompt,referenceLabels:["Character master: Lucien (Child)"]});
+ expect(body.error).toContain("exact");expect(generateImage).toHaveBeenCalledTimes(1);
+});
+it("distinguishes a review timeout after generation from a policy refusal without returning bytes",async()=>{
+ vi.mocked(generateImage).mockResolvedValueOnce({imageDataUrl:"unchecked",model:"test",provider:"sensenova",seed:1,referenceCount:0});
+ vi.mocked(inspectGeneratedVisual).mockRejectedValueOnce(new VisualSafetyError("review timed out","VISUAL_SAFETY_UNAVAILABLE",503,{reason:"timeout",attempts:2}));
+ const response=await POST(validRequest()),body=await response.json();
+ expect(response.status).toBe(503);expect(body.image).toBeUndefined();expect(body.diagnostics).toMatchObject({kind:"infrastructure",stage:"output-review",imageGenerated:true,reviewFailure:{reason:"timeout",attempts:2}});
+ expect(generateImage).toHaveBeenCalledTimes(1);
+});
