@@ -83,11 +83,16 @@ it("does not move to Google after the selected xKiro reviewer refuses content",a
   expect(generateVertexText).not.toHaveBeenCalled();expect(generateXkiroVisualReview).toHaveBeenCalledTimes(1);
 });
 
-it("accepts a complete four-view full-body sheet and rejects cropped or missing views",async()=>{
- answer({viewCount:4,views:["front","back","left-profile","right-profile"],allFullBody:true,sameIdentity:true,confident:true});
- expect((await verifyCharacterSheetImage(await image())).layout).toBe("four-view");
- answer({viewCount:3,views:["front","back","left-profile"],allFullBody:true,sameIdentity:true,confident:true});
- await expect(verifyCharacterSheetImage(await image())).rejects.toMatchObject({code:"CHARACTER_SHEET_LAYOUT_INVALID"});
- answer({viewCount:4,views:["front","back","left-profile","right-profile"],allFullBody:false,sameIdentity:true,confident:true});
- await expect(verifyCharacterSheetImage(await image())).rejects.toMatchObject({code:"CHARACTER_SHEET_LAYOUT_INVALID"});
+it("independently observes both profile crops and rejects duplicate or cropped views",async()=>{
+ const layout={viewCount:4,fourColumns:true,firstTwoDirections:["toward-viewer","away"],allFullBody:true,sameIdentity:true,confident:true};
+ const left={noseDirection:"image-left",toeDirection:"image-left"},right={noseDirection:"image-right",toeDirection:"image-right"};
+ const respond=(value:unknown,a:unknown=left,b:unknown=right)=>{answer(value);answer(a);answer(b)};
+ respond(layout);expect((await verifyCharacterSheetImage(await image())).layout).toBe("four-view");
+ expect(generateVertexText).toHaveBeenCalledTimes(3);
+ expect(vi.mocked(generateVertexText).mock.calls.every(call=>call[1]?.images?.length===1)).toBe(true);
+ for(const invalid of [{...layout,viewCount:3},{...layout,allFullBody:false},{...layout,firstTwoDirections:["toward-viewer","toward-viewer"]}]){
+  respond(invalid);await expect(verifyCharacterSheetImage(await image())).rejects.toMatchObject({code:"CHARACTER_SHEET_LAYOUT_INVALID"});
+ }
+ respond(layout,left,left);await expect(verifyCharacterSheetImage(await image())).rejects.toMatchObject({code:"CHARACTER_SHEET_LAYOUT_INVALID"});
+ respond(layout,left,{noseDirection:"uncertain",toeDirection:"image-right"});await expect(verifyCharacterSheetImage(await image())).rejects.toMatchObject({code:"CHARACTER_SHEET_LAYOUT_INVALID"});
 });
