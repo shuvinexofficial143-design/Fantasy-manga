@@ -1,4 +1,4 @@
-import {beforeEach,describe,expect,it,vi} from "vitest";
+import {beforeEach,afterEach,describe,expect,it,vi} from "vitest";
 import {generateImage} from "@/lib/image-providers";
 import {classifySenseNovaError} from "@/lib/image-providers/sensenova";
 import {preflightVisual,inspectGeneratedVisual,verifyCharacterSheetImage,VisualSafetyError} from "@/lib/visual-safety";
@@ -11,9 +11,11 @@ vi.mock("@/lib/visual-safety",async(importOriginal)=>{
 });
 beforeEach(()=>{
   vi.resetAllMocks();
+  vi.stubEnv("IMAGE_REVIEW_RESUME_SECRET","route-fixture-secret");
   vi.mocked(preflightVisual).mockImplementation(async(prompt)=>({prompt,adjusted:false}));
   vi.mocked(inspectGeneratedVisual).mockImplementation(async(image)=>({image,safety:{promptChecked:true,promptAdjusted:false,referencesChecked:0,outputChecked:true,redactedRegions:0,coverMode:"auto",checkedAt:"test"}}));
 });
+afterEach(()=>vi.unstubAllEnvs());
 const validRequest=()=>new Request("http://localhost/api/generate",{
   method:"POST",headers:{"Content-Type":"application/json"},
   body:JSON.stringify({provider:"sensenova",model:"sensenova-u1.5-lite",prompt:"A fantasy castle"})
@@ -90,4 +92,39 @@ it("distinguishes a review timeout after generation from a policy refusal withou
  const response=await POST(validRequest()),body=await response.json();
  expect(response.status).toBe(503);expect(body.image).toBeUndefined();expect(body.diagnostics).toMatchObject({kind:"infrastructure",stage:"output-review",imageGenerated:true,reviewFailure:{reason:"timeout",attempts:2}});
  expect(generateImage).toHaveBeenCalledTimes(1);
+});
+
+const heldImage="data:image/png;base64,dW5jaGVja2VkLWZpeHR1cmU=";
+const generated=()=>({imageDataUrl:heldImage,sourceUrl:"https://provider/unchecked",model:"test",provider:"sensenova",seed:1,referenceCount:1});
+const resumeRequest=(reviewToken:string)=>new Request("http://localhost/api/generate",{method:"POST",body:JSON.stringify({reviewToken,safetyApproved:true})});
+it("resumes a technical output-review failure using the same encrypted image without generating again",async()=>{
+ vi.mocked(generateImage).mockResolvedValueOnce(generated());
+ vi.mocked(inspectGeneratedVisual).mockRejectedValueOnce(new VisualSafetyError("Bad reviewer request","VISUAL_SAFETY_UNAVAILABLE",503,{reason:"bad-request",attempts:1,httpStatus:400,upstreamCode:"invalid_request",parameter:"response_format"}));
+ const first=await POST(validRequest()),failure=await first.json();
+ expect(first.status).toBe(503);expect(failure.reviewToken).toBeTruthy();expect(failure.retryable).toBe(false);expect(JSON.stringify(failure)).not.toContain(heldImage);
+ const second=await POST(resumeRequest(failure.reviewToken)),success=await second.json();
+ expect(second.status).toBe(200);expect(success.image).toBe(heldImage);expect(success.sourceUrl).toBeUndefined();
+ expect(generateImage).toHaveBeenCalledTimes(1);expect(preflightVisual).toHaveBeenCalledTimes(1);expect(inspectGeneratedVisual).toHaveBeenCalledTimes(2);
+ expect(vi.mocked(inspectGeneratedVisual).mock.calls[0][0]).toBe(vi.mocked(inspectGeneratedVisual).mock.calls[1][0]);
+});
+it("honors a safety block during resume and issues no further token or unchecked bytes",async()=>{
+ vi.mocked(generateImage).mockResolvedValueOnce(generated());
+ vi.mocked(inspectGeneratedVisual).mockRejectedValueOnce(new VisualSafetyError("Timeout","VISUAL_SAFETY_UNAVAILABLE",503,{reason:"timeout",attempts:2}));
+ const failure=await (await POST(validRequest())).json();
+ vi.mocked(inspectGeneratedVisual).mockRejectedValueOnce(new VisualSafetyError("Output blocked","VISUAL_OUTPUT_BLOCKED"));
+ const response=await POST(resumeRequest(failure.reviewToken)),body=await response.json();
+ expect(response.status).toBe(422);expect(body.image).toBeUndefined();expect(body.reviewToken).toBeUndefined();expect(generateImage).toHaveBeenCalledTimes(1);
+});
+it("still verifies all four views when resuming a character sheet",async()=>{
+ vi.mocked(generateImage).mockResolvedValueOnce(generated());
+ vi.mocked(verifyCharacterSheetImage).mockRejectedValueOnce(new VisualSafetyError("Timeout","VISUAL_SAFETY_UNAVAILABLE",503,{reason:"timeout",attempts:2})).mockResolvedValueOnce({layout:"four-view",views:["front","back","left-profile","right-profile"]});
+ const request=new Request("http://localhost/api/generate",{method:"POST",body:JSON.stringify({prompt:"A character sheet",provider:"sensenova",purpose:"character-sheet"})});
+ const failure=await (await POST(request)).json();expect(failure.diagnostics.stage).toBe("character-quality");
+ const response=await POST(resumeRequest(failure.reviewToken)),body=await response.json();
+ expect(response.status).toBe(200);expect(body.characterSheet.layout).toBe("four-view");expect(verifyCharacterSheetImage).toHaveBeenCalledTimes(2);expect(generateImage).toHaveBeenCalledTimes(1);
+});
+it("rejects a forged resume token before any generator or reviewer call",async()=>{
+ const response=await POST(resumeRequest("forged-token")),body=await response.json();
+ expect(response.status).toBe(410);expect(body.code).toBe("IMAGE_REVIEW_SESSION_EXPIRED");expect(body.image).toBeUndefined();
+ expect(generateImage).not.toHaveBeenCalled();expect(preflightVisual).not.toHaveBeenCalled();expect(inspectGeneratedVisual).not.toHaveBeenCalled();
 });

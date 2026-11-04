@@ -1,4 +1,5 @@
-export type ImageFailureDiagnostics={requestId:string;stage:"preflight"|"generation"|"output-review"|"character-quality";kind:"infrastructure"|"provider-policy"|"application-policy"|"layout"|"provider-error";inputPrompt?:string;reviewInputPrompt?:string;effectivePrompt?:string;providerPrompt?:string;referenceLabels:string[];reviewReason?:string;reviewFailure?:{reason:string;attempts:number};providerCode?:string;providerRequestId?:string;imageGenerated:boolean;target?:"scene"|"character-sheet";characterId?:string;characterName?:string};
+export type ImageFailureDiagnostics={requestId:string;stage:"preflight"|"generation"|"output-review"|"character-quality";kind:"infrastructure"|"provider-policy"|"application-policy"|"layout"|"provider-error";inputPrompt?:string;reviewInputPrompt?:string;effectivePrompt?:string;providerPrompt?:string;referenceLabels:string[];reviewReason?:string;reviewFailure?:{reason:string;attempts:number;httpStatus?:number;upstreamCode?:string;parameter?:string};providerCode?:string;providerRequestId?:string;imageGenerated:boolean;target?:"scene"|"character-sheet";characterId?:string;characterName?:string};
+export type ImageReviewSession={token:string;requestKey:string;expiresAt:number};
 export type VisualCoverMode="auto"|"blur"|"flowers"|"cover";
 export type VisualSafetyReport={promptChecked:true;promptAdjusted:boolean;referencesChecked:number;outputChecked:true;redactedRegions:number;coverMode:VisualCoverMode;checkedAt:string};
 export type VisualSafetyPlan={adapted:boolean;coverInstruction:string;reason:string};
@@ -15,7 +16,7 @@ export type Character={
   continuityNotes?:string;
   locked?:boolean;
   referenceImage?:string;
-  sheetFailure?:{error:string;code?:string;designKey:string;diagnostics?:ImageFailureDiagnostics;at:string};
+  sheetFailure?:{reviewSession?:ImageReviewSession;error:string;code?:string;designKey:string;diagnostics?:ImageFailureDiagnostics;at:string};
   referenceSheet?:{layout:"four-view";designKey:string;views:string[];generatedAt:string;provider:string;model:string;prompt:string;safety?:VisualSafetyReport};
 };
 
@@ -117,6 +118,7 @@ export type CinematicImage={
   error?:string;
   failureCode?:string;
   failureDiagnostics?:ImageFailureDiagnostics;
+  reviewSession?:ImageReviewSession;
   locationId?:string;
   cameraShot:string;
   cameraAngle:string;

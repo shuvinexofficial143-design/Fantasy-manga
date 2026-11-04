@@ -1,9 +1,15 @@
 import {afterEach,it,expect,vi} from "vitest";
 import {createProject,createImage} from "./default-project";
-import {characterSheetPrompt,characterSheetDesignKey,isCharacterSheetReady,ensureSceneCharacterSheets} from "./character-sheets";
+import {characterSheetPrompt,characterSheetDesignKey,isCharacterSheetReady,ensureSceneCharacterSheets,neutralCharacterTraits} from "./character-sheets";
 import type {Character} from "./types";
 const hero:Character={id:"hero",name:"Lucien",role:"main",appearance:"Adult, dark hair and brown eyes",outfit:"Blue coat, brown boots"};
 afterEach(()=>vi.unstubAllGlobals());
+it("makes a clean identity master while preserving the doctor's actual age, scar and original story outfit",()=>{
+ const doctor={...hero,name:"Dr. Kaizen Veyr",appearance:"30 years old, dark hair, a permanent scar over the eyebrow",outfit:"White doctor's coat with small bloodstains, dark trousers"};
+ const neutral=neutralCharacterTraits(doctor),prompt=characterSheetPrompt(doctor,createProject());
+ expect(neutral.outfit).toBe("White doctor's coat, dark trousers");expect(prompt).toContain("30 years old");expect(prompt).toContain("permanent scar");expect(prompt).toContain("clean intact condition");
+ expect(prompt).not.toContain("with small bloodstains");expect(doctor.outfit).toContain("bloodstains");
+});
 it("requires all four uncropped full-body views in one consistent sheet",()=>{
  const prompt=characterSheetPrompt(hero,createProject());
  for(const part of ["FOUR full-body","FRONT VIEW","BACK VIEW","LEFT PROFILE","RIGHT PROFILE","soles of both feet","Blue coat","dark hair","EXACT SAME identity"])expect(prompt).toContain(part);

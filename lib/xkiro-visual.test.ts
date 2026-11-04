@@ -35,3 +35,17 @@ it("shares a single model catalog request across concurrent observations",async(
  await Promise.all([1,2,3].map(()=>generateXkiroVisualReview("Review","sensenova/sensenova-6.8-flash-lite",[])));
  expect(fetcher.mock.calls.filter(call=>String(call[0]).includes('/models?'))).toHaveLength(1);
 });
+it("recognizes documented 400 invalid_request content refusals instead of blaming configuration",async()=>{
+ const {fetcher,generateXkiroVisualReview}=await setup();
+ fetcher.mockResolvedValueOnce(new Response(JSON.stringify({error:{type:"invalid_request_error",code:"invalid_request",message:"The request was blocked by the provider's content policy."}}),{status:400}));
+ await expect(generateXkiroVisualReview("Review","sensenova/sensenova-6.8-flash-lite",[])).rejects.toMatchObject({code:"REVIEW_CONTENT_BLOCKED",status:400});expect(fetcher).toHaveBeenCalledTimes(2);
+});
+it("preserves safe 4xx metadata and distinguishes shape, permission and balance errors",async()=>{
+ const {fetcher,generateXkiroVisualReview}=await setup();
+ for(const [status,reason] of [[400,"bad-request"],[402,"quota"],[403,"permission"]] as const){
+  fetcher.mockResolvedValueOnce(new Response(JSON.stringify({error:{type:"invalid_request_error",code:"invalid_request",param:"response_format",message:"Secret sk-fixture must never be displayed"}}),{status}));
+  try{await generateXkiroVisualReview("Review","sensenova/sensenova-6.8-flash-lite",[]);expect.fail("should reject")}catch(error){
+   expect(error).toMatchObject({reason,status,parameter:"response_format",upstreamCode:"invalid_request",transient:false});expect(String(error)).not.toContain("sk-fixture");
+  }
+ }
+});
