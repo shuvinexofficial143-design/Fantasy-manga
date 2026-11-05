@@ -122,6 +122,7 @@ export async function POST(req:Request){
       "EXPLAINER RULES: The result must be continuous copy-ready spoken narration, not a line-by-line translation and not a description of the images. Do not include timestamps, seconds, durations, editing cues, voice instructions, TTS instructions or audio instructions.",
       "SUMMARY MEMORY RULE: summary is also the handoff memory for the next segment. Include unresolved events, current character/location state, important held props, injuries, outfit/time-of-day changes and any fact the next segment must remember. Keep it concise but sufficient for continuity.",
       "",
+      "CHARACTER ROLE: Identify each stable named individual as main/protagonist/antagonist/named-support as supported by the source. Label crowds, generic guards, unnamed bystanders and incidental background people background-extra. Repeating a crowd across many images does not make each extra a principal character. Do not invent prominence or change existing canonical identities.",
       "EXISTING CHARACTERS:",
       JSON.stringify([...existingCharacters,...results.flatMap((item)=>arrayValue(item.characters))].map((item)=>({name:objectValue(item).name,role:objectValue(item).role,appearance:objectValue(item).appearance,outfit:objectValue(item).outfit,continuityNotes:objectValue(item).continuityNotes||""}))),
       "",
