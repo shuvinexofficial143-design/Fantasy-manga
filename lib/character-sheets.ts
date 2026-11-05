@@ -1,3 +1,5 @@
+import {characterReferencePlan} from "./character-reference-policy";
+import {isVisualSafetyBlock} from "./image-batch";
 import {sceneNeedsVisualAdaptation} from "./scene-visual-safety";
 import {imageRequestKey,reviewOrGenerateRequest} from "./review-session";
 import type {Character,Project} from "./types";
@@ -32,6 +34,10 @@ export function characterSheetRequest(character:Character,project:Project){
   if(!capability.maxReferences)throw new Error("Character sheets को scenes में इस्तेमाल करने के लिए Images पेज पर reference-support वाला model चुनें।");
   const refs:Array<{image:string;label:string}>=[];
   if(character.referenceImage)refs.push({image:character.referenceImage,label:`Character identity master: ${character.name}; same identity in all four turnaround views`});
+  else {
+    const anchor=project.images.filter(scene=>scene.image&&scene.characterStates.some(state=>state.characterId===character.id)).sort((a,b)=>a.sceneNumber-b.sceneNumber)[0];
+    if(anchor?.image)refs.push({image:anchor.image,label:`Earlier scene ${anchor.sceneNumber} containing ${character.name}; isolate only this named character's established face, age and outfit from the ensemble, not the other people or scene layout`});
+  }
   if(project.useStyleReferences!==false){
     for(const [index,ref] of (project.styleReferences||[]).entries())refs.push({image:ref.dataUrl,label:`Style reference ${index+1}: rendering only, do not copy subjects`});
     if(!project.styleReferences?.length&&project.styleReferenceImage)refs.push({image:project.styleReferenceImage,label:"Style reference: visual language only"});
@@ -59,4 +65,29 @@ export function characterSceneUsage(project:Project){
   const counts=new Map<string,number>();
   for(const scene of project.images)for(const id of new Set(scene.characterStates.map((state)=>state.characterId)))counts.set(id,(counts.get(id)||0)+1);
   return counts;
+}
+
+/** Generate only missing recurring individual masters, immediately before use. */
+export async function ensureAutomaticCharacterReferences(project:Project,sceneIds:string[],onSaved:(project:Project)=>void,onProgress:(message:string)=>void,signal?:AbortSignal){
+  if(project.useContinuityReferences===false||!selectedImageModel(project).maxReferences)return project;
+  const required=new Set(sceneIds.flatMap(id=>{const scene=project.images.find(item=>item.id===id);return scene&&!scene.reviewSession?scene.characterStates.map(state=>state.characterId):[]}));
+  let working=project;
+  for(const character of project.characters.filter(item=>required.has(item.id)&&characterReferencePlan(item,project).mode==="four-view")){
+    signal?.throwIfAborted();
+    const failure=character.sheetFailure;
+    // A previous refusal never starts another automatic attempt, even in a new scene.
+    if(failure&&(failure.code==="SENSENOVA_SENSITIVE_IMAGE"||isVisualSafetyBlock(failure.code)))throw Object.assign(new Error(failure.error),{code:failure.code,diagnostics:failure.diagnostics,characterId:character.id,characterName:character.name});
+    onProgress(character.name+": recurring character की 4-view reference बन रही है…");
+    try{
+      const done=await generateCharacterSheet(character,working,signal);
+      signal?.throwIfAborted();
+      working={...working,characters:working.characters.map(item=>item.id===done.id?done:item),updatedAt:new Date().toISOString()};onSaved(working);
+    }catch(error){
+      if(signal?.aborted)throw error;
+      const sheetFailure=characterSheetFailure(character,error);
+      working={...working,characters:working.characters.map(item=>item.id===character.id?{...item,sheetFailure}:item),updatedAt:new Date().toISOString()};onSaved(working);
+      throw Object.assign(error instanceof Error?error:new Error(sheetFailure.error),{diagnostics:sheetFailure.diagnostics});
+    }
+  }
+  return working;
 }

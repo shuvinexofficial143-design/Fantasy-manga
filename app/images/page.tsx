@@ -6,6 +6,7 @@ import {AlertTriangle,ImageIcon,Loader2,Palette,Play,Sparkles} from "lucide-reac
 import {useEffect,useRef,useState} from "react";
 import {useProject} from "@/components/project-provider";
 import {imageRequestKey,reviewOrGenerateRequest} from "@/lib/review-session";
+import {ensureAutomaticCharacterReferences} from "@/lib/character-sheets";
 import {buildSceneImageRequest} from "@/lib/scene-image-request";
 import {ImageFailureDetails} from "@/components/image-failure-details";
 import {imageBatchPendingIds,imageFailureAction,isVisualSafetyBlock} from "@/lib/image-batch";
@@ -56,15 +57,16 @@ export default function ImagesPage(){
     const held=reason as {reviewToken?:string;reviewExpiresAt?:number;requestKey?:string};
     const reviewSession=failureDiagnostics?.target!=="character-sheet"&&held?.reviewToken&&held.reviewExpiresAt&&held.requestKey?{token:held.reviewToken,expiresAt:held.reviewExpiresAt,requestKey:held.requestKey}:undefined;
     return {...working,images:working.images.map((item)=>item.id===sceneId
-      ?{...item,status:"failed" as const,error:message,failureCode,failureDiagnostics,reviewSession,prompt:failureDiagnostics?.effectivePrompt||item.prompt}
+      ?{...item,status:"failed" as const,error:message,failureCode,failureDiagnostics,reviewSession,prompt:failureDiagnostics?.target==="character-sheet"?item.prompt:failureDiagnostics?.effectivePrompt||item.prompt}
       :item),updatedAt:new Date().toISOString()};
   };
 
   const generateOne=async(scene:CinematicImage)=>{
     generationController.current=new AbortController();
     setBusy(scene.id);setError("");setNotice("");
-    const working=project;
+    let working=project;
     try{
+      working=await ensureAutomaticCharacterReferences(working,[scene.id],next=>{working=next;commit(next)},setProgress,generationController.current.signal);
       const done=await generateScene(scene.id,working)();
       commit({...working,images:working.images.map((item)=>item.id===done.id?done:item),updatedAt:new Date().toISOString()});
       setNotice("Scene "+scene.sceneNumber+" image generated with "+selectedModel.label+".");
@@ -92,6 +94,7 @@ export default function ImagesPage(){
           setProgress((working.imageProvider==="sensenova"?"SenseNova":"xKiro")+" · "+(offset+1)+" / "+pendingIds.length+" · क्रम से image बन रही है…");
           for(const id of batch){
             try{
+              working=await ensureAutomaticCharacterReferences(working,[id],next=>{working=next;commit(next)},setProgress,generationController.current.signal);
               const done=await generateScene(id,working)();
               working={...working,images:working.images.map((item)=>item.id===done.id?done:item),updatedAt:new Date().toISOString()};
               commit(working);
@@ -117,11 +120,16 @@ export default function ImagesPage(){
         while(offset<pendingIds.length){
           const batch=pendingIds.slice(offset,offset+concurrency);
           setProgress("Google Cloud Gemini · "+Math.min(offset+batch.length,pendingIds.length)+" / "+pendingIds.length+" · "+batch.length+" images parallel generate हो रही हैं…");
-          const results=await Promise.allSettled(batch.map((id)=>generateScene(id,working)()));
+          const readyIds:string[]=[];
+          for(const id of batch){
+            try{working=await ensureAutomaticCharacterReferences(working,[id],next=>{working=next;commit(next)},setProgress,generationController.current.signal);readyIds.push(id)}
+            catch(reason){working=recordFailure(working,id,reason);commit(working);if(imageFailureAction(working.imageProvider,(reason as {code?:unknown})?.code)==="stop-batch")throw reason}
+          }
+          const results=await Promise.allSettled(readyIds.map((id)=>generateScene(id,working)()));
           for(const [index,result] of results.entries()){
             working=result.status==="fulfilled"
               ?{...working,images:working.images.map((item)=>item.id===result.value.id?result.value:item),updatedAt:new Date().toISOString()}
-              :recordFailure(working,batch[index],result.reason);
+              :recordFailure(working,readyIds[index],result.reason);
           }
           commit(working);
           const failed=results.find((result)=>result.status==="rejected"&&imageFailureAction(working.imageProvider,(result.reason as {code?:unknown})?.code)==="stop-batch");
@@ -177,6 +185,7 @@ export default function ImagesPage(){
       </div>
     </section>
 
+    <p className="text-xs leading-5 text-slate-500">Recurring मुख्य characters की missing 4-view reference अपने आप बनेगी। Saved references reuse होंगी। Background/one-off characters की अलग sheet नहीं बनेगी; उनकी पहली scene आगे reference होगी।</p>
     <ImageDirectionControls disabled={!!busy}/>
     {styleReferenceCount>0&&<div className="rounded-xl border border-fuchsia-100 bg-fuchsia-50 p-3 text-xs text-fuchsia-800">{project.useStyleReferences===false?"Uploaded style references बंद हैं।":"Uploaded style references चालू हैं।"} {styleReferenceCount} saved. ऊपर दिए switches से references चुनें।</div>}
     {progress&&<div className="rounded-2xl border border-violet-200 bg-violet-50 p-4 text-sm font-medium text-violet-800"><Loader2 className="mr-2 inline animate-spin" size={15}/>{progress}</div>}
