@@ -39,7 +39,7 @@ export function classifySenseNovaError(status:number,responseBody:string):SenseN
 }
 export function senseNovaConfigured(){return Boolean(process.env.SENSENOVA_API_KEY?.trim())}
 
-async function normalizeReference(value:string,index:number){
+async function normalizeReference(value:string,index:number,packed=false){
   let bytes:Buffer;
   if(/^data:image\/[a-zA-Z0-9.+-]+;base64,/.test(value)){
     bytes=Buffer.from(value.slice(value.indexOf(",")+1),"base64");
@@ -52,9 +52,9 @@ async function normalizeReference(value:string,index:number){
   }else throw new Error("Reference "+(index+1)+" must be a data image or HTTPS URL.");
   if(!bytes.length||bytes.length>20*1024*1024)throw new Error("Reference "+(index+1)+" has invalid image size.");
   // SenseNova accepts PNG/JPEG/WebP, 256–4096 px, <=10 MB and <=2:1 ratio.
-  // Normalize to a 1024px square with padding to preserve the full source frame.
+  // Normalize with padding; packed canvases retain 2048px for readable identities.
   const output=await sharp(bytes,{limitInputPixels:40_000_000}).rotate()
-    .resize(1024,1024,{fit:"contain",background:{r:245,g:245,b:245,alpha:1}})
+    .resize(packed?2048:1024,packed?2048:1024,{fit:"contain",background:{r:245,g:245,b:245,alpha:1}})
     .jpeg({quality:84,mozjpeg:true}).toBuffer();
   if(output.length>10*1024*1024)throw new Error("Reference "+(index+1)+" remains too large after normalization.");
   return "data:image/jpeg;base64,"+output.toString("base64");
@@ -92,10 +92,11 @@ export async function generateSenseNovaImage(input:ImageGenerationInput){
   const base=(process.env.SENSENOVA_BASE_URL||BASE_URL).replace(/\/$/,"");
   const model=input.model?.trim()||process.env.SENSENOVA_IMAGE_MODEL?.trim()||"sensenova-u1.5-lite";
   // SenseNova /images/edits accepts at most five source images.
-  // Upstream selection reserves capacity for uploaded styles and attaches role labels.
-  const refs=(input.referenceImages||[]).slice(0,5);
+  // The route packs approved overflow; never silently omit any source here.
+  const refs=input.referenceImages||[];
+  if(refs.length>5)throw new SenseNovaRequestError("Reference plan exceeds five provider inputs. No references were omitted or sent.",400,"SENSENOVA_REFERENCE_LIMIT");
   const size=input.width/input.height>1.5?"1536x1024":input.width<input.height?"1024x1536":"1024x1024";
-  const normalized=await Promise.all(refs.map(normalizeReference));
+  const normalized=await Promise.all(refs.map((reference,index)=>normalizeReference(reference,index,input.referencePacked?.[index])));
   // The route reviews the final provider-sized prompt including role labels.
   // Do not compact, reorder or append text after that approval.
   const prompt=input.promptPrepared?input.prompt:prepareSenseNovaPrompt(input.prompt,refs.map((_,index)=>input.referenceLabels?.[index]||"visual reference"));

@@ -2,7 +2,7 @@ import {AsyncLocalStorage} from "node:async_hooks";
 
 export type ReviewFailureReason="timeout"|"rate-limit"|"service-unavailable"|"authentication"|"permission"|"quota"|"bad-request"|"configuration"|"invalid-response"|"invalid-image"|"unknown";
 export class ReviewServiceError extends Error{
-  constructor(public readonly reason:ReviewFailureReason,public readonly transient=false,public readonly status?:number,public readonly retryAfterMs=0,public readonly upstreamCode?:string,public readonly parameter?:string){super("Visual reviewer: "+reason);this.name="ReviewServiceError"}
+  constructor(public readonly reason:ReviewFailureReason,public readonly transient=false,public readonly status?:number,public readonly retryAfterMs=0,public readonly upstreamCode?:string,public readonly parameter?:string,public readonly responseIssue?:"empty"|"truncated"|"non-text"|"ambiguous"|"invalid-json"|"invalid-schema"){super("Visual reviewer: "+reason);this.name="ReviewServiceError"}
 }
 export function reviewHttpError(status:number,retryAfter:string|null=null){
   const seconds=Number(retryAfter),date=retryAfter?Date.parse(retryAfter):NaN;

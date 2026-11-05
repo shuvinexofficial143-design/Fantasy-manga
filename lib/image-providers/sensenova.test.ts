@@ -77,3 +77,17 @@ describe("SenseNova generation contract",()=>{
     expect(JSON.parse(fetchMock.mock.calls[0][1].body).prompt).toBe(prompt);
   });
 });
+it("keeps approved packed reference canvases at 2048px in the outbound provider request",async()=>{
+ vi.stubEnv("SENSENOVA_API_KEY","test-only");
+ const bytes=await sharp({create:{width:2048,height:2048,channels:3,background:"blue"}}).png().toBuffer();
+ const fetchMock=vi.fn().mockResolvedValue(new Response(JSON.stringify({data:[{b64_json:"aW1hZ2U="}]})));vi.stubGlobal("fetch",fetchMock);
+ try{
+  await generateSenseNovaImage({prompt:"Approved prompt",promptPrepared:true,provider:"sensenova",model:"sensenova-u1.5-lite",seed:1,width:1365,height:768,referenceImages:["data:image/png;base64,"+bytes.toString("base64")],referenceLabels:["Packed reference canvas"],referencePacked:[true]});
+  const body=JSON.parse(fetchMock.mock.calls[0][1].body);expect(await sharp(Buffer.from(body.images[0].image_url.split(",")[1],"base64")).metadata()).toMatchObject({width:2048,height:2048});
+ }finally{vi.unstubAllGlobals();vi.unstubAllEnvs()}
+});
+it("rejects unpacked overflow rather than silently omitting a reference",async()=>{
+ vi.stubEnv("SENSENOVA_API_KEY","test-only");const fetchMock=vi.fn();vi.stubGlobal("fetch",fetchMock);
+ try{await expect(generateSenseNovaImage({prompt:"Garden",provider:"sensenova",seed:1,width:1000,height:1000,referenceImages:Array(6).fill("original")})).rejects.toMatchObject({code:"SENSENOVA_REFERENCE_LIMIT"});expect(fetchMock).not.toHaveBeenCalled()}
+ finally{vi.unstubAllGlobals();vi.unstubAllEnvs()}
+});

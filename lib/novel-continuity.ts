@@ -15,7 +15,9 @@ export function novelReferences(scene:CinematicImage,project:Project,previous?:C
   const styles:Array<{image:string;label:string}>=[];
   const continuity:Array<{image:string;label:string}>=[];
   const add=(target:typeof styles,image:string|undefined,label:string)=>{
-    if(image&&!target.some((ref)=>ref.image===image))target.push({image,label});
+    if(!image)return;
+    const existing=target.find((ref)=>ref.image===image);
+    if(existing){if(!existing.label.includes(label))existing.label+="; "+label}else target.push({image,label});
   };
   if(project.useStyleReferences!==false){
     for(const [index,ref] of (project.styleReferences||[]).slice(0,4).entries()){
@@ -46,14 +48,14 @@ export function novelReferences(scene:CinematicImage,project:Project,previous?:C
       add(continuity,anchor?.image,`Earlier scene ${anchor?.sceneNumber} at ${location.name}; architecture only`);
     }
   }
-  // Identity sheets for every active character come first. Retain uploaded
-  // styles in the remaining capacity rather than losing a second character.
+  // Preserve all existing active identities. The server packs overflow into
+  // temporary reference canvases instead of omitting a person or generating
+  // another character sheet. Text-only integrations still receive no images.
   const masters=continuity.filter((ref)=>ref.label.startsWith("Character master:"));
   const other=continuity.filter((ref)=>!masters.includes(ref));
-  const selectedMasters=masters.slice(0,limit),selectedStyles=styles.slice(0,Math.max(0,limit-selectedMasters.length));
-  const extraBudget=Math.max(0,limit-selectedMasters.length-selectedStyles.length);
-  const refs=[...selectedMasters,...other.slice(0,extraBudget),...selectedStyles].filter((ref,index,all)=>all.findIndex((other)=>other.image===ref.image)===index).slice(0,limit);
-  return {images:refs.map((ref)=>ref.image),labels:refs.map((ref)=>ref.label),styleCount:refs.filter((ref)=>styles.includes(ref)).length,continuityCount:refs.filter((ref)=>continuity.includes(ref)).length,omittedCharacterNames:masters.slice(limit).map((ref)=>ref.label.split(": ")[1]?.split(" — ")[0]||"Character")};
+  const refs:Array<{image:string;label:string}>=[];
+  if(limit)for(const ref of [...masters,...other,...styles])add(refs,ref.image,ref.label);
+  return {images:refs.map((ref)=>ref.image),labels:refs.map((ref)=>ref.label),styleCount:refs.filter((ref)=>styles.some((style)=>style.image===ref.image)).length,continuityCount:refs.filter((ref)=>continuity.some((item)=>item.image===ref.image)).length,omittedCharacterNames:[],needsPacking:refs.length>limit,providerLimit:limit};
 }
 
 export function namedSceneCharacters(states:Array<{name:string;position:string;action:string;direction:string;expression:string;stateNotes:string}>,characters:Character[]):SceneCharacterState[]{

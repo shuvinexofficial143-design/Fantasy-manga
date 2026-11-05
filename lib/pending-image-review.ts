@@ -1,7 +1,7 @@
 import {createCipheriv,createDecipheriv,createHash,randomBytes} from "node:crypto";
 import type {ImageFailureDiagnostics,VisualCoverMode} from "./types";
 
-export type PendingImageReview={version:1;expiresAt:number;image:string;prompt:string;adjusted:boolean;mode:VisualCoverMode;purpose:"scene"|"character-sheet";result:{provider:string;model:string;seed:number;referenceCount:number;warning?:string};diagnostics:ImageFailureDiagnostics};
+export type PendingImageReview={version:1;expiresAt:number;image:string;prompt:string;adjusted:boolean;mode:VisualCoverMode;purpose:"scene"|"character-sheet";result:{provider:string;model:string;seed:number;referenceCount:number;sourceReferenceCount?:number;warning?:string};diagnostics:ImageFailureDiagnostics};
 function key(){
   const secret=process.env.IMAGE_REVIEW_RESUME_SECRET||process.env.XKIRO_API_KEY||process.env.SENSENOVA_API_KEY||process.env.VERTEX_AI_API_KEY||process.env.GEMINI_API_KEY||process.env.VERTEX_AI_SERVICE_ACCOUNT_JSON||process.env.VERTEX_AI_SERVICE_ACCOUNT_BASE64;
   return secret?createHash("sha256").update("fantasy-manga:pending-review:v1\0"+secret).digest():null;

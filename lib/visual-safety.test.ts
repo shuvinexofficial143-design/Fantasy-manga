@@ -29,8 +29,8 @@ describe("semantic prompt and reference preflight",()=>{
     expect(generateVertexText).toHaveBeenCalledTimes(1);
   });
   it("does not accept a rewrite without a new complete prompt",async()=>{
-    answer({decision:"rewrite"});
-    await expect(preflightVisual("A confrontation",[],[],"auto")).rejects.toMatchObject({code:"VISUAL_PREFLIGHT_BLOCKED"});
+    answer({decision:"rewrite"});answer({decision:"rewrite"});
+    await expect(preflightVisual("A confrontation",[],[],"auto")).rejects.toMatchObject({code:"VISUAL_SAFETY_UNAVAILABLE",reviewFailure:{reason:"invalid-response",responseIssue:"invalid-schema"}});
   });
   it("fails closed on unavailable or malformed review responses",async()=>{
     vi.mocked(generateVertexText).mockRejectedValueOnce(new Error("credential must not leak"));
