@@ -1,13 +1,13 @@
 import {beforeEach,afterEach,describe,expect,it,vi} from "vitest";
 import {generateImage} from "@/lib/image-providers";
 import {classifySenseNovaError} from "@/lib/image-providers/sensenova";
-import {preflightVisual,inspectGeneratedVisual,verifyCharacterSheetImage,VisualSafetyError} from "@/lib/visual-safety";
+import {preflightVisual,inspectReferenceInputs,inspectGeneratedVisual,verifyCharacterSheetImage,VisualSafetyError} from "@/lib/visual-safety";
 import {POST} from "./route";
 
 vi.mock("@/lib/image-providers",()=>({generateImage:vi.fn()}));
 vi.mock("@/lib/visual-safety",async(importOriginal)=>{
   const actual=await importOriginal<typeof import("@/lib/visual-safety")>();
-  return {...actual,preflightVisual:vi.fn(),inspectGeneratedVisual:vi.fn(),verifyCharacterSheetImage:vi.fn()};
+  return {...actual,inspectReferenceInputs:vi.fn(),preflightVisual:vi.fn(),inspectGeneratedVisual:vi.fn(),verifyCharacterSheetImage:vi.fn()};
 });
 beforeEach(()=>{
   vi.resetAllMocks();
@@ -127,4 +127,11 @@ it("rejects a forged resume token before any generator or reviewer call",async()
  const response=await POST(resumeRequest("forged-token")),body=await response.json();
  expect(response.status).toBe(410);expect(body.code).toBe("IMAGE_REVIEW_SESSION_EXPIRED");expect(body.image).toBeUndefined();
  expect(generateImage).not.toHaveBeenCalled();expect(preflightVisual).not.toHaveBeenCalled();expect(inspectGeneratedVisual).not.toHaveBeenCalled();
+});
+it("does not generate or drop an overflow reference after its original-source review refuses it",async()=>{
+ vi.mocked(inspectReferenceInputs).mockRejectedValueOnce(new VisualSafetyError("Source blocked","VISUAL_PREFLIGHT_BLOCKED"));
+ const labels=Array.from({length:6},(_,i)=>"Character master: Knight "+i);
+ const response=await POST(new Request("http://localhost/api/generate",{method:"POST",body:JSON.stringify({provider:"sensenova",prompt:"A garden meeting",referenceImages:Array(6).fill("original-source"),referenceLabels:labels})}));
+ const body=await response.json();expect(response.status).toBe(422);expect(body.diagnostics.sourceReferenceLabels).toEqual(labels);
+ expect(generateImage).not.toHaveBeenCalled();expect(preflightVisual).not.toHaveBeenCalled();expect(inspectReferenceInputs).toHaveBeenCalledTimes(1);
 });

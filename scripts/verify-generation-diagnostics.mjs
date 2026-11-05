@@ -45,15 +45,15 @@ try{
  // Wait for persistence before navigating across a full page load.
  for(let i=0;i<30;i++){if((await saved()).characters[0].referenceSheet)break;await new Promise(r=>setTimeout(r,100))}
  await page.goto(origin+'/images',{waitUntil:'networkidle0'});await click('Generate Remaining');
- await page.waitForFunction(()=>document.body.innerText.includes('Batch रुका:')&&document.body.innerText.includes('Dr. Kaizen'));
- assert.equal(sceneAttempts,2,'normal scene generated before a future unrelated character sheet failed');
- assert.equal(characterAttempts,3);assert.equal(calls.length,5);
+ await page.waitForFunction(()=>document.body.innerText.includes('3 / 4 images ready'));
+ assert.equal(sceneAttempts,3,'normal and future-character scenes generated without extra sheets');
+ assert.equal(characterAttempts,2);assert.equal(calls.length,5);
  const text=await page.$eval('body',e=>e.innerText);assert.ok(text.includes('exact policy category'));assert.ok(text.includes('Stored reference from refused request'));
  await click('Final provider prompt','summary');assert.ok((await page.$eval('body',e=>e.innerText)).includes('EXACT PROVIDER PROMPT FROM THIS REQUEST'));
  for(let i=0;i<30;i++){const p=await saved();if(p.images.find(s=>s.id==='ordinary')?.image&&p.images.find(s=>s.id==='blocked')?.failureDiagnostics)break;await new Promise(r=>setTimeout(r,100))}
  await page.reload({waitUntil:'networkidle0'});const p=await saved();
  assert.equal(p.images.find(s=>s.id==='blocked').failureDiagnostics.providerCode,'18');assert.ok(p.images.find(s=>s.id==='ordinary').image);assert.equal(p.story,'Original narration remains');
- assert.equal(p.characters[1].sheetFailure.diagnostics.target,'character-sheet');assert.ok(!p.images.find(s=>s.id==='future-doctor').image);
+ assert.ok(!p.characters[1].sheetFailure);assert.ok(!p.characters[1].referenceImage);assert.ok(p.images.find(s=>s.id==='future-doctor').image);
  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);assert.deepEqual(errors,[]);
- console.log('PASS: red review failure classification, read-only diagnosis without generation, explicit character retry, stored yellow diagnostics, no automatic policy retry, scene-specific sheets before a future-character failure, persistence, original story and mobile layout. Five mocked generations, zero provider calls.');
+ console.log('PASS: red review failure classification, read-only diagnosis without generation, explicit character retry, stored yellow diagnostics, no automatic policy retry, no extra sheet for a future character, persistence, original story and mobile layout. Five mocked generations, zero provider calls.');
 }finally{await browser.close();server.kill()}

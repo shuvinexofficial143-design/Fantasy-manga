@@ -132,11 +132,15 @@ export async function generateXkiroVisualReview(prompt:string,model:string,image
   const selected=visualModelCatalog?.models.find((item)=>item.id===model);
   if(selected?.capabilities?.vision!==true)throw Object.assign(new ReviewServiceError("configuration"),{message:"Reviewer model does not support verified image input"});
   const content=[{type:"text",text:prompt},...images.map((image)=>({type:"image_url",image_url:{url:`data:${image.mimeType};base64,${image.data}`}}))];
-  const response=await fetch(`${BASE_URL}/chat/completions`,{method:"POST",headers:{Authorization:`Bearer ${key}`,"Content-Type":"application/json"},body:JSON.stringify({model,messages:[{role:"user",content}],temperature:0,max_tokens:4096,response_format:{type:"json_object"},...(model==="sensenova/sensenova-6.8-flash-lite"?{reasoning_effort:"none"}:{})}),signal:AbortSignal.timeout(timeoutMs),cache:"no-store"});
-  let payload:{error?:{code?:string;type?:string;message?:string;param?:string};choices?:Array<{finish_reason?:string;message?:{content?:string;refusal?:string}}>};
+  const response=await fetch(`${BASE_URL}/chat/completions`,{method:"POST",headers:{Authorization:`Bearer ${key}`,"Content-Type":"application/json"},body:JSON.stringify({model,messages:[{role:"user",content}],temperature:0,max_tokens:8192,response_format:{type:"json_object"},...(model==="sensenova/sensenova-6.8-flash-lite"?{reasoning_effort:"none"}:{})}),signal:AbortSignal.timeout(timeoutMs),cache:"no-store"});
+  let payload:{error?:{code?:string;type?:string;message?:string;param?:string};choices?:Array<{finish_reason?:string;message?:{content?:unknown;parsed?:unknown;refusal?:string}}>};
   try{payload=await response.json()}catch{throw response.ok?new ReviewServiceError("invalid-response",true):reviewHttpError(response.status,response.headers.get("retry-after"))}
   if(payload.choices?.some((choice)=>choice.finish_reason==="content_filter"||Boolean(choice.message?.refusal)))throw Object.assign(new Error("Visual reviewer refused content"),{code:"REVIEW_CONTENT_BLOCKED",status:response.status});
   if(!response.ok||payload?.error)throw reviewerResponseError(response.status,payload,response.headers.get("retry-after"));
-  const result=payload.choices?.[0]?.message?.content?.trim();if(!result)throw new ReviewServiceError("invalid-response",true);
+  const choice=payload.choices?.[0],message=choice?.message;
+  if(choice?.finish_reason==="length")throw new ReviewServiceError("invalid-response",true,undefined,0,undefined,undefined,"truncated");
+  const answerContent=message?.content;
+  const result=typeof answerContent==="string"?answerContent.trim():Array.isArray(answerContent)?answerContent.flatMap((part)=>part&&["text","output_text"].includes(part.type)&&typeof part.text==="string"?[part.text]:[]).join("").trim():message?.parsed&&typeof message.parsed==="object"&&!Array.isArray(message.parsed)?JSON.stringify(message.parsed):"";
+  if(!result)throw new ReviewServiceError("invalid-response",true,undefined,0,undefined,undefined,answerContent?"non-text":"empty");
   return result;
 }

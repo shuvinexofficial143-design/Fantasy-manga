@@ -47,8 +47,8 @@ it("reserves SenseNova reference slots for every uploaded style",()=>{
   const scene=createImage(2,"Speaks",[{characterId:"hero",position:"left",action:"talks",direction:"right",expression:"calm",stateNotes:""}]);
   project.images=[previous,scene];
   const refs=novelReferences(scene,project,previous);
-  expect(refs.images).toEqual(["master","style0","style1","style2","style3"]);
-  expect(refs.styleCount).toBe(4);expect(refs.continuityCount).toBe(1);
+  expect(refs.images).toEqual(["master","previous","style0","style1","style2","style3"]);expect(refs.needsPacking).toBe(true);
+  expect(refs.styleCount).toBe(4);expect(refs.continuityCount).toBe(2);
 });
 
 it.each([[true,true],[false,true],[true,false],[false,false]])("honors style=%s and continuity=%s switches independently",(style,continuity)=>{
@@ -73,5 +73,24 @@ it("retains both active character sheets before using the remaining style slots"
  project.characters=[{id:"a",name:"A",role:"lead",appearance:"Adult",outfit:"Blue",referenceImage:"sheet-a"},{id:"b",name:"B",role:"lead",appearance:"Adult",outfit:"Red",referenceImage:"sheet-b"}];
  project.styleReferences=Array.from({length:4},(_,i)=>({id:"style"+i,name:"style",dataUrl:"style"+i}));
  const scene=createImage(1,"A and B talk",project.characters.map(c=>({characterId:c.id,position:"left",action:"talk",direction:"right",expression:"calm",stateNotes:""})));
- const refs=novelReferences(scene,project);expect(refs.images.slice(0,2)).toEqual(["sheet-a","sheet-b"]);expect(refs.images).toHaveLength(5);expect(refs.omittedCharacterNames).toEqual([]);
+ const refs=novelReferences(scene,project);expect(refs.images.slice(0,2)).toEqual(["sheet-a","sheet-b"]);expect(refs.images).toHaveLength(6);expect(refs.needsPacking).toBe(true);expect(refs.omittedCharacterNames).toEqual([]);
+});
+
+it("reuses a recurring character's first completed scene without creating a master or using future scenes",()=>{
+ const project=createProject();project.imageProvider="sensenova";
+ project.characters=[{id:"guest",name:"Guest",role:"support",appearance:"Adult",outfit:"Green"}];
+ const states=[{characterId:"guest",position:"left",action:"talk",direction:"right",expression:"calm",stateNotes:""}];
+ project.images=Array.from({length:4},(_,i)=>createImage(i+1,"Guest talks",states));
+ project.images[0].image="first-scene";project.images[1].image="second-scene";project.images[3].image="future-scene";
+ project.images[2].usePreviousImage=false;
+ const before=JSON.stringify(project),refs=novelReferences(project.images[2],project);
+ expect(refs.images).toEqual(["first-scene"]);expect(refs.labels[0]).toContain("containing Guest");expect(JSON.stringify(project)).toBe(before);
+ expect(novelReferences(project.images[0],project).images).toEqual([]);
+});
+it("keeps legacy uploaded character images and merges shared ensemble anchor roles",()=>{
+ const project=createProject();project.imageProvider="sensenova";
+ project.characters=[{id:"a",name:"A",role:"lead",appearance:"Adult",outfit:"Blue",referenceImage:"saved-portrait"},{id:"b",name:"B",role:"support",appearance:"Adult",outfit:"Green"},{id:"c",name:"C",role:"support",appearance:"Adult",outfit:"Red"}];
+ const states=project.characters.map(c=>({characterId:c.id,position:"left",action:"talk",direction:"right",expression:"calm",stateNotes:""}));
+ const first=createImage(1,"Ensemble",states);first.image="ensemble";const second=createImage(2,"Talk",states);second.usePreviousImage=false;project.images=[first,second];
+ const refs=novelReferences(second,project);expect(refs.images).toEqual(["saved-portrait","ensemble"]);expect(refs.labels[1]).toContain("containing B");expect(refs.labels[1]).toContain("containing C");
 });

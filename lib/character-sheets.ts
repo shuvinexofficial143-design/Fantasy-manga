@@ -4,7 +4,6 @@ import type {Character,Project} from "./types";
 import {projectImageStyle} from "./style-presets";
 import {hashString} from "./cinematic";
 import {selectedImageModel} from "./image-models";
-import {isVisualSafetyBlock} from "./image-batch";
 import {readImageResponse} from "./image-response";
 
 export const CHARACTER_SHEET_VIEWS=["front","back","left-profile","right-profile"] as const;
@@ -55,25 +54,9 @@ export function characterSheetFailure(character:Character,error:unknown):NonNull
   const reviewSession=value?.reviewToken&&value.requestKey&&value.reviewExpiresAt?{token:value.reviewToken,requestKey:value.requestKey,expiresAt:value.reviewExpiresAt}:undefined;
   return {reviewSession,error:error instanceof Error?error.message:"Character sheet failed",code:value?.code,designKey:characterSheetDesignKey(character),diagnostics,at:new Date().toISOString()};
 }
-export async function ensureSceneCharacterSheets(project:Project,sceneIds:string[],onSaved:(project:Project)=>void,onProgress:(message:string)=>void,signal?:AbortSignal,manualRetryCharacters=new Set<string>()){
-  if(project.useContinuityReferences===false||selectedImageModel(project).maxReferences===0)return project;
-  const ids=new Set(sceneIds.flatMap((id)=>project.images.find((scene)=>scene.id===id)?.characterStates.map((state)=>state.characterId)||[]));
-  let working=project;
-  for(const character of working.characters.filter((item)=>ids.has(item.id)&&!isCharacterSheetReady(item))){
-    signal?.throwIfAborted();
-    const failure=character.sheetFailure;
-    const blocked=failure?.designKey===characterSheetDesignKey(character)&&(failure.code==="SENSENOVA_SENSITIVE_IMAGE"||isVisualSafetyBlock(failure.code));
-    if(blocked&&!manualRetryCharacters.has(character.id))throw Object.assign(new Error(failure.error),{code:failure.code,diagnostics:failure.diagnostics,characterId:character.id,characterName:character.name});
-    manualRetryCharacters.delete(character.id);
-    onProgress(character.name+": front, back, left और right full-body sheet बन रही है…");
-    try{
-      const done=await generateCharacterSheet(character,working,signal);
-      working={...working,characters:working.characters.map((item)=>item.id===done.id?done:item),updatedAt:new Date().toISOString()};onSaved(working);
-    }catch(error){
-      const sheetFailure=characterSheetFailure(character,error);
-      working={...working,characters:working.characters.map((item)=>item.id===character.id?{...item,sheetFailure}:item),updatedAt:new Date().toISOString()};onSaved(working);
-      throw Object.assign(error instanceof Error?error:new Error(sheetFailure.error),{diagnostics:sheetFailure.diagnostics});
-    }
-  }
-  return working;
+/** Count planned appearances without creating or mutating any reference images. */
+export function characterSceneUsage(project:Project){
+  const counts=new Map<string,number>();
+  for(const scene of project.images)for(const id of new Set(scene.characterStates.map((state)=>state.characterId)))counts.set(id,(counts.get(id)||0)+1);
+  return counts;
 }

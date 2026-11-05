@@ -52,17 +52,17 @@ try{
  await page.goto(origin+'/images',{waitUntil:'networkidle0'});
  await page.evaluate(()=>[...document.querySelectorAll('button')].find(b=>b.textContent.includes('Generate Remaining')).click());
  await page.waitForFunction(()=>document.body.innerText.includes('1 / 1 images ready'));
- assert.equal(requests.length,3,'manual first sheet, automatic missing second sheet, then story scene');
- assert.equal(requests[1].purpose,'character-sheet');assert.ok(!requests[2].purpose);
- assert.ok(requests[2].referenceLabels.some(label=>label.includes('Lucien')));assert.ok(requests[2].referenceLabels.some(label=>label.includes('Friend')));
- assert.ok(requests[2].referenceLabels.every(label=>label.includes('do not duplicate')));
- await page.waitForFunction(()=>new Promise(resolve=>{const r=indexedDB.open('fantasy-cinematic-studio',1);r.onsuccess=()=>{const db=r.result,q=db.transaction('projects','readonly').objectStore('projects').get('current');q.onsuccess=()=>{const p=q.result?.projects[0];db.close();resolve(p?.characters.every(c=>c.referenceSheet?.layout==='four-view')&&p.images.find(i=>i.id==='keep')?.image)}}}));
+ assert.equal(requests.length,2,'one manually requested sheet, then story scene; no automatic sheet');
+ assert.ok(!requests[1].purpose);
+ assert.ok(requests[1].referenceLabels.some(label=>label.includes('Lucien')));assert.ok(!requests[1].referenceLabels.some(label=>label.includes('Friend')),'first appearance uses canonical text, not a paid extra sheet');
+ assert.ok(requests[1].referenceLabels.every(label=>label.includes('do not duplicate')));
+ await page.waitForFunction(()=>new Promise(resolve=>{const r=indexedDB.open('fantasy-cinematic-studio',1);r.onsuccess=()=>{const db=r.result,q=db.transaction('projects','readonly').objectStore('projects').get('current');q.onsuccess=()=>{const p=q.result?.projects[0];db.close();resolve(p?.characters.find(c=>c.id==='hero')?.referenceSheet?.layout==='four-view'&&p.images.find(i=>i.id==='keep')?.image)}}}));
  await page.reload({waitUntil:'networkidle0'});const saved=await read();
  assert.equal(saved.novelImport.chapters.find(c=>c.number===2).sourceText,'');assert.deepEqual(saved.novelImport.chapters.find(c=>c.number===2).sceneIds,[]);
  assert.ok(!saved.images.some(i=>i.id==='remove'||i.title==='LATE RESULT'));
- assert.equal(saved.characters.length,2);assert.ok(saved.characters.every(c=>c.referenceImage&&c.referenceSheet?.layout==='four-view'));
+ assert.equal(saved.characters.length,2);assert.ok(saved.characters[0].referenceImage);assert.ok(!saved.characters[1].referenceImage);
  assert.equal(await page.evaluate(()=>localStorage.getItem('fantasy-manga:story-draft:v1:fixture:2')),null);
  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
  if(process.env.CHARACTER_REQUEST_PATH)await writeFile(process.env.CHARACTER_REQUEST_PATH,JSON.stringify(requests[0]));
- assert.deepEqual(errors,[]);console.log('PASS: delete/cancel, draft cleanup, no resurrection from late analysis, number reuse, four-view sheet generation, auto-generation for a missing character, both references in scene request, and persistence after reload. Three mocked generations, no provider calls.');
+ assert.deepEqual(errors,[]);console.log('PASS: delete/cancel, draft cleanup, no resurrection from late analysis, number reuse, four-view sheet generation, no automatic sheet for a missing character, saved master in scene request, and persistence after reload. Two mocked generations, no provider calls.');
 }finally{await browser.close();server.kill()}

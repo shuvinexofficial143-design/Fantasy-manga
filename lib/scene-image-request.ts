@@ -12,6 +12,5 @@ export function buildSceneImageRequest(sceneId:string,project:Project){
   const compact=prefixes.flatMap((prefix)=>full.split(/\n\n+/).filter((section)=>section.startsWith(prefix))).join("\n\n");
   const prompt=project.imageProvider==="xkiro"?(compact||full).slice(0,5200):full;
   const refs=novelReferences(scene,project,previous);
-  if(refs.omittedCharacterNames.length)throw new Error("इस scene के सभी character references model की सीमा में नहीं आते: "+refs.omittedCharacterNames.join(", ")+"। अधिक references लेने वाला model या अलग scene composition चुनें।");
   return {prompt,negativePrompt:project.useStylePreset!==false&&project.imageStylePreset==="reference-video"?scene.negativePrompt:"text, captions, logo, collage, duplicate character, inconsistent identity",aspectRatio:project.aspectRatio,provider:project.imageProvider,model:project.imageModel,visualCoverMode:project.visualCoverMode,seed:scene.seed||hashString(project.id+"|"+scene.characterStates.map((state)=>state.characterId).sort().join("|")+"|"+(scene.locationId||"")),referenceImages:refs.images,referenceLabels:refs.labels};
 }

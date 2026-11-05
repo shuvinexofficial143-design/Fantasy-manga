@@ -49,3 +49,15 @@ it("preserves safe 4xx metadata and distinguishes shape, permission and balance 
   }
  }
 });
+it("reads text content blocks without treating reasoning content as a verdict",async()=>{
+ const {fetcher,generateXkiroVisualReview}=await setup();
+ fetcher.mockResolvedValueOnce(new Response(JSON.stringify({choices:[{message:{content:[{type:"reasoning",text:'{"decision":"block"}'},{type:"text",text:'{"decision":'},{type:"output_text",text:'"allow"}'}]}}]})));
+ expect(await generateXkiroVisualReview("Review","sensenova/sensenova-6.8-flash-lite",[])).toBe('{"decision":"allow"}');
+ expect(JSON.parse(fetcher.mock.calls[1][1].body).max_tokens).toBe(8192);
+ fetcher.mockResolvedValueOnce(new Response(JSON.stringify({choices:[{message:{reasoning_content:'{"decision":"allow"}',content:null}}]})));
+ await expect(generateXkiroVisualReview("Review","sensenova/sensenova-6.8-flash-lite",[])).rejects.toMatchObject({responseIssue:"empty"});
+});
+it("never accepts a truncated verdict even when a complete-looking approval precedes the cutoff",async()=>{
+ const {fetcher,generateXkiroVisualReview}=await setup();fetcher.mockResolvedValueOnce(new Response(JSON.stringify({choices:[{finish_reason:"length",message:{content:'{"decision":"allow"}'}}]})));
+ await expect(generateXkiroVisualReview("Review","sensenova/sensenova-6.8-flash-lite",[])).rejects.toMatchObject({reason:"invalid-response",responseIssue:"truncated"});
+});

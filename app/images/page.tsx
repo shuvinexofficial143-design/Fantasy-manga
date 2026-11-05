@@ -11,7 +11,6 @@ import {ImageFailureDetails} from "@/components/image-failure-details";
 import {imageBatchPendingIds,imageFailureAction,isVisualSafetyBlock} from "@/lib/image-batch";
 import {IMAGE_MODELS,selectedImageModel} from "@/lib/image-models";
 import {ImageDirectionControls} from "@/components/image-direction-controls";
-import {ensureSceneCharacterSheets} from "@/lib/character-sheets";
 import {readImageResponse} from "@/lib/image-response";
 import {planSceneVisual} from "@/lib/scene-visual-safety";
 import type {CinematicImage,Project} from "@/lib/types";
@@ -64,9 +63,8 @@ export default function ImagesPage(){
   const generateOne=async(scene:CinematicImage)=>{
     generationController.current=new AbortController();
     setBusy(scene.id);setError("");setNotice("");
-    let working=project;
+    const working=project;
     try{
-      working=await ensureSceneCharacterSheets(working,[scene.id],(next)=>{working=next;commit(next)},setProgress,generationController.current?.signal,new Set(scene.characterStates.map((state)=>state.characterId)));
       const done=await generateScene(scene.id,working)();
       commit({...working,images:working.images.map((item)=>item.id===done.id?done:item),updatedAt:new Date().toISOString()});
       setNotice("Scene "+scene.sceneNumber+" image generated with "+selectedModel.label+".");
@@ -88,14 +86,12 @@ export default function ImagesPage(){
       // The separate Retry Failed button is an explicit person-triggered retry.
       // Ordinary Generate Remaining never resubmits a provider-refused scene.
       const pendingIds=imageBatchPendingIds(targetIds,working.images,working.imageProvider,retryFailed);
-      const manualRetryCharacters=new Set(retryFailed?pendingIds.flatMap((id)=>working.images.find((scene)=>scene.id===id)?.characterStates.map((state)=>state.characterId)||[]):[]);
       if(working.imageProvider==="xkiro"||working.imageProvider==="sensenova"){
         for(let offset=0;offset<pendingIds.length;offset+=XKIRO_BATCH_SIZE){
           const batch=pendingIds.slice(offset,offset+XKIRO_BATCH_SIZE);
           setProgress((working.imageProvider==="sensenova"?"SenseNova":"xKiro")+" · "+(offset+1)+" / "+pendingIds.length+" · क्रम से image बन रही है…");
           for(const id of batch){
             try{
-              working=await ensureSceneCharacterSheets(working,[id],(next)=>{working=next;commit(next)},setProgress,generationController.current?.signal,manualRetryCharacters);
               const done=await generateScene(id,working)();
               working={...working,images:working.images.map((item)=>item.id===done.id?done:item),updatedAt:new Date().toISOString()};
               commit(working);
@@ -121,16 +117,11 @@ export default function ImagesPage(){
         while(offset<pendingIds.length){
           const batch=pendingIds.slice(offset,offset+concurrency);
           setProgress("Google Cloud Gemini · "+Math.min(offset+batch.length,pendingIds.length)+" / "+pendingIds.length+" · "+batch.length+" images parallel generate हो रही हैं…");
-          const readyIds:string[]=[];
-          for(const id of batch){
-            try{working=await ensureSceneCharacterSheets(working,[id],(next)=>{working=next;commit(next)},setProgress,generationController.current?.signal,manualRetryCharacters);readyIds.push(id)}
-            catch(reason){working=recordFailure(working,id,reason);commit(working);if(imageFailureAction(working.imageProvider,(reason as {code?:unknown})?.code)==="stop-batch")throw reason}
-          }
-          const results=await Promise.allSettled(readyIds.map((id)=>generateScene(id,working)()));
+          const results=await Promise.allSettled(batch.map((id)=>generateScene(id,working)()));
           for(const [index,result] of results.entries()){
             working=result.status==="fulfilled"
               ?{...working,images:working.images.map((item)=>item.id===result.value.id?result.value:item),updatedAt:new Date().toISOString()}
-              :recordFailure(working,readyIds[index],result.reason);
+              :recordFailure(working,batch[index],result.reason);
           }
           commit(working);
           const failed=results.find((result)=>result.status==="rejected"&&imageFailureAction(working.imageProvider,(result.reason as {code?:unknown})?.code)==="stop-batch");

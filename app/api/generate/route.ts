@@ -5,8 +5,10 @@ import type {ImageFailureDiagnostics} from "@/lib/types";
 import {NextResponse} from "next/server";
 import {aspectRatioToSize} from "@/lib/cinematic";
 import {generateImage} from "@/lib/image-providers";
-import {SenseNovaRequestError,prepareSenseNovaPrompt,senseNovaPromptWithRoles} from "@/lib/image-providers/sensenova";
-import {coverMode,preflightVisual,inspectGeneratedVisual,verifyCharacterSheetImage,VisualSafetyError} from "@/lib/visual-safety";
+import {prepareVisualReferencePlan} from "@/lib/visual-reference-plan";
+import {ReferencePlanError} from "@/lib/reference-packing";
+import {SenseNovaRequestError} from "@/lib/image-providers/sensenova";
+import {coverMode,inspectGeneratedVisual,verifyCharacterSheetImage,VisualSafetyError} from "@/lib/visual-safety";
 export const maxDuration=300;
 export const runtime="nodejs";
 type Body={reviewToken?:unknown;purpose?:unknown;prompt?:unknown;negativePrompt?:unknown;aspectRatio?:unknown;seed?:unknown;referenceImages?:unknown;referenceLabels?:unknown;provider?:unknown;model?:unknown;visualCoverMode?:unknown};
@@ -31,26 +33,23 @@ async function handlePost(req:Request){
     const aspectRatio=typeof body.aspectRatio==="string"?body.aspectRatio:"16:9";
     const seed=typeof body.seed==="number"&&Number.isFinite(body.seed)?Math.trunc(body.seed):Date.now()%2147483647;
     const negativePrompt=typeof body.negativePrompt==="string"?body.negativePrompt.slice(0,2000):"";
-    // Keep the actual provider reference cap and label alignment before review.
-    const maxRefs=provider==="sensenova"?5:provider==="xkiro"?(model==="openai/gpt-image-2.5"?1:0):8;
-    const references=Array.isArray(body.referenceImages)?body.referenceImages.flatMap((value,index)=>typeof value==="string"&&value? [{image:value,label:Array.isArray(body.referenceLabels)&&typeof body.referenceLabels[index]==="string"?body.referenceLabels[index]:"Visual reference"}]:[]).slice(0,maxRefs):[];
-    const referenceImages=references.map((ref)=>ref.image),referenceLabels=references.map((ref)=>ref.label);
     const mode=coverMode(body.visualCoverMode);
-    // A caller cannot disable this check or mark its own prompt as approved.
     const fullPrompt=[prompt,negativePrompt?"AVOID: "+negativePrompt:""].filter(Boolean).join("\n\n");
-    diagnostics.inputPrompt=fullPrompt;diagnostics.referenceLabels=referenceLabels;
-    const providerInput=provider==="sensenova"?prepareSenseNovaPrompt(fullPrompt,referenceLabels):fullPrompt;
-    diagnostics.reviewInputPrompt=providerInput;
-    const preflight=await preflightVisual(providerInput,referenceImages,referenceLabels,mode,provider==="sensenova"?4800:16000,provider==="sensenova"?senseNovaPromptWithRoles(fullPrompt,referenceLabels):undefined);
+    diagnostics.inputPrompt=fullPrompt;
+    const plan=await prepareVisualReferencePlan({provider,model,prompt:fullPrompt,images:body.referenceImages,labels:body.referenceLabels,mode,onPrepared:(state)=>{diagnostics.referenceLabels=state.labels;diagnostics.sourceReferenceLabels=state.sourceLabels;diagnostics.referencePacking={sourceCount:state.sourceCount,inputCount:state.inputCount};diagnostics.reviewInputPrompt=state.prompt}});
+    const referenceImages=plan.images,referenceLabels=plan.labels,preflight=plan.review;
+    diagnostics.referenceLabels=referenceLabels;diagnostics.sourceReferenceLabels=plan.sourceLabels;
+    diagnostics.referencePacking={sourceCount:plan.sourceCount,inputCount:referenceImages.length};
+    diagnostics.reviewInputPrompt=preflight.prompt;
     diagnostics.effectivePrompt=preflight.prompt;diagnostics.providerPrompt=preflight.prompt;diagnostics.reviewReason=preflight.reason;
     diagnostics.stage="generation";
     const {width,height}=aspectRatioToSize(aspectRatio);
-    const result=await generateImage({promptPrepared:true,prompt:preflight.prompt,negativePrompt:"",seed,width,height,provider,model,referenceImages,referenceLabels});
+    const result=await generateImage({promptPrepared:true,prompt:preflight.prompt,negativePrompt:"",seed,width,height,provider,model,referenceImages,referenceLabels,referencePacked:plan.packed});
     diagnostics.imageGenerated=true;diagnostics.stage="output-review";
-    pending={version:1,expiresAt:Date.now()+3_600_000,image:result.imageDataUrl,prompt:preflight.prompt,adjusted:preflight.adjusted,mode,purpose:body.purpose==="character-sheet"?"character-sheet":"scene",result:{provider:result.provider,model:result.model,seed:result.seed,referenceCount:result.referenceCount,warning:result.warning},diagnostics};
+    pending={version:1,expiresAt:Date.now()+3_600_000,image:result.imageDataUrl,prompt:preflight.prompt,adjusted:preflight.adjusted,mode,purpose:body.purpose==="character-sheet"?"character-sheet":"scene",result:{provider:result.provider,model:result.model,seed:result.seed,referenceCount:result.referenceCount,sourceReferenceCount:plan.sourceCount,warning:result.warning},diagnostics};
     return await finishReview(pending,diagnostics);
   }catch(error){
-    const known=error instanceof SenseNovaRequestError||error instanceof VisualSafetyError;
+    const known=error instanceof SenseNovaRequestError||error instanceof VisualSafetyError||error instanceof ReferencePlanError;
     if(!known)console.error("Cinematic image request failed",error instanceof Error?error.name:"UnknownError");
     diagnostics.kind=error instanceof SenseNovaRequestError?(error.code==="SENSENOVA_SENSITIVE_IMAGE"?"provider-policy":"provider-error"):error instanceof VisualSafetyError?(error.code==="VISUAL_SAFETY_UNAVAILABLE"?"infrastructure":error.code==="CHARACTER_SHEET_LAYOUT_INVALID"?"layout":"application-policy"):"provider-error";
     if(error instanceof VisualSafetyError){diagnostics.reviewFailure=error.reviewFailure;diagnostics.reviewReason=error.reviewReason||diagnostics.reviewReason}
@@ -63,7 +62,7 @@ async function handlePost(req:Request){
 }
 
 async function finishReview(pending:PendingImageReview,diagnostics:ImageFailureDiagnostics){
-  const reviewed=await inspectGeneratedVisual(pending.image,pending.mode,pending.adjusted,pending.result.referenceCount);
+  const reviewed=await inspectGeneratedVisual(pending.image,pending.mode,pending.adjusted,pending.result.sourceReferenceCount??pending.result.referenceCount);
   if(pending.purpose==="character-sheet")diagnostics.stage="character-quality";
   const characterSheet=pending.purpose==="character-sheet"?await verifyCharacterSheetImage(reviewed.image):undefined;
   return NextResponse.json({image:reviewed.image,...pending.result,effectivePrompt:pending.prompt,safety:reviewed.safety,...(characterSheet?{characterSheet}:{})});
