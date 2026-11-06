@@ -2,6 +2,7 @@
 
 import {useEffect,useMemo,useState,useSyncExternalStore} from "react";
 import Link from "next/link";
+import {useRouter} from "next/navigation";
 import {AlertTriangle,BookOpenCheck,FileText,Loader2,Sparkles} from "lucide-react";
 import {chapterSourceKey,splitChapterForDensity} from "@/lib/chapters";
 import {chapterRevision} from "@/lib/chapter-deletion";
@@ -91,6 +92,7 @@ function upsertChapter(chapters:NovelChapter[],chapter:NovelChapter){
 
 export default function NovelImportPage(){
   const {project,setState,persistenceError}=useProject();
+  const router=useRouter();
   const novel=project.novelImport||emptyImport();
   const chapterNumber=Math.max(1,novel.currentChapter||1);
   const selectedChapter=useMemo(()=>novel.chapters.find((item)=>item.number===chapterNumber),[novel.chapters,chapterNumber]);
@@ -146,7 +148,7 @@ export default function NovelImportPage(){
     return next.novelImport&&selected?{...next,novelImport:{...next.novelImport,currentChapter:selected}}:next;
   })}));
   const patchImport=(value:Partial<NovelImportState>)=>commit({...project,novelImport:{...novel,...value},updatedAt:new Date().toISOString()});
-  const analyzePasted=async()=>{
+  const analyzePasted=async(autoImages=false)=>{
     const number=Math.max(1,Math.trunc(chapterNumber||1));
     const chapterText=effectiveChapterText;
     if(chapterText.length<120){setError("कम से कम कुछ paragraphs वाला chapter text paste करें।");return}
@@ -173,6 +175,7 @@ export default function NovelImportPage(){
 
       if(oldProgress?.sourceKey===sourceKey&&oldProgress.status==="complete"){
         setNotice("Chapter "+number+" पहले से पूरा analyze हो चुका है। Text बदलने पर नया analysis शुरू होगा।");
+        if(autoImages)router.push("/images?autostart=1");
         return;
       }
 
@@ -346,6 +349,7 @@ export default function NovelImportPage(){
       commit(working);
 
       setNotice("Chapter "+number+" analysis complete. Visual Prompts और Explainer अपने dedicated pages पर तैयार हैं।");
+      if(autoImages)router.push("/images?autostart=1");
     }catch(reason){
       const message=reason instanceof Error?reason.message:"Chapter analysis failed.";
       const state=working.novelImport||emptyImport();
@@ -412,12 +416,13 @@ export default function NovelImportPage(){
       </label>
 
       <div className="mt-3 flex flex-wrap items-center gap-3">
-        <button disabled={!!busy||effectiveChapterText.length<120} onClick={()=>void analyzePasted()} className="inline-flex items-center gap-2 rounded-xl bg-violet-600 px-5 py-3 text-sm font-bold text-white shadow-sm disabled:opacity-50">
+        <button disabled={!!busy||effectiveChapterText.length<120} onClick={()=>void analyzePasted(true)} className="inline-flex items-center gap-2 rounded-xl bg-violet-600 px-5 py-3 text-sm font-bold text-white shadow-sm disabled:opacity-50">
           {busy==="paste"?<Loader2 className="animate-spin" size={17}/>:<Sparkles size={17}/>}
           {selectedChapter?.analysisProgress&&selectedChapter.analysisProgress.status!=="complete"&&selectedChapter.analysisProgress.completedParts>0
             ?"Resume Analysis · Part "+(selectedChapter.analysisProgress.completedParts+1)+" / "+selectedChapter.analysisProgress.totalParts
-            :"Generate Explainer + Visual Prompts"}
+            :"Generate Story Images · Auto"}
         </button>
+        <button type="button" disabled={!!busy||effectiveChapterText.length<120} onClick={()=>void analyzePasted(false)} className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-600 disabled:opacity-50">Analyze only</button>
       </div>
     </section>
 
