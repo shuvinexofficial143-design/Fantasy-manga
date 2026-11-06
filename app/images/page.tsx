@@ -71,7 +71,7 @@ export default function ImagesPage(){
   const generateOne=async(scene:CinematicImage)=>{
     generationController.current=new AbortController();
     setBusy(scene.id);setError("");setNotice("");
-    let working=project;
+    const working=project;
     try{
       const done=await generateScene(scene.id,working)();
       commit({...working,images:working.images.map((item)=>item.id===done.id?done:item),updatedAt:new Date().toISOString()});
