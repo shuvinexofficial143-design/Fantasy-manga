@@ -2,6 +2,7 @@
 import {useRef,useState,type ChangeEvent} from "react";
 import {Download,FolderUp,Settings2,ShieldCheck} from "lucide-react";
 import {normalizeState,useProject} from "@/components/project-provider";
+import {restoreChapterVersion} from "@/lib/chapter-versions";
 import {VISUAL_DENSITY_OPTIONS} from "@/lib/chapters";
 import {STYLE_PRESETS} from "@/lib/style-presets";
 import type {StudioState} from "@/lib/types";
@@ -82,6 +83,19 @@ export default function SettingsPage(){
       {backupStatus&&<p role="status" className="mt-2 text-xs text-emerald-700">{backupStatus}</p>}
       {backupError&&<p role="alert" className="mt-2 text-xs text-red-700">{backupError}</p>}
     </section>
+    {(project.archivedChapters||[]).length>0&&<details className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+      <summary className="cursor-pointer text-sm font-semibold text-slate-800">Previous chapter versions · {project.archivedChapters?.length}</summary>
+      <p className="mt-2 text-xs text-slate-500">Restore से वर्तमान Chapter की copy भी History में सुरक्षित रहेगी।</p>
+      <div className="mt-3 space-y-2">
+        {(project.archivedChapters||[]).slice().reverse().map(item=><div key={item.id} className="flex items-center justify-between gap-3 rounded-lg bg-slate-50 p-2 text-xs">
+          <span className="min-w-0 truncate text-slate-700">Chapter {item.chapter.number} · {item.images.filter(image=>Boolean(image.image)).length} images · {new Date(item.archivedAt).toLocaleDateString()}</span>
+          <button type="button" className="shrink-0 rounded-md border border-violet-200 bg-white px-2 py-1 font-semibold text-violet-700" onClick={()=>{
+            setState(current=>({...current,projects:current.projects.map(p=>p.id===project.id?restoreChapterVersion(p,item.id):p)}));
+            setBackupStatus("Chapter "+item.chapter.number+" का पुराना Version Restore हो गया।");
+          }}>Restore</button>
+        </div>)}
+      </div>
+    </details>
     <p className="text-xs text-slate-500">Generation Chrome Tab खुला होने पर ही चलेगी। API keys केवल Deployment Environment में रहेंगी, Backup में नहीं।</p>
   </main>;
 }
