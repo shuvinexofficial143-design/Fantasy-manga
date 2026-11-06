@@ -113,7 +113,7 @@ export function ProjectProvider({children}:{children:React.ReactNode}){
   const saveQueue=useRef<Promise<void>>(Promise.resolve());
   const saveTimer=useRef<ReturnType<typeof setTimeout>|null>(null);
   const latestState=useRef(state);
-  latestState.current=state;
+  useEffect(()=>{latestState.current=state},[state]);
 
   useEffect(()=>{let mounted=true;void (async()=>{
     try{
