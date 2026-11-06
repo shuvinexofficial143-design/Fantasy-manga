@@ -168,6 +168,15 @@ export default function ImagesPage(){
     }finally{setBusy("");setProgress("")}
   };
 
+  const autoStarted=useRef(false);
+  useEffect(()=>{
+    if(autoStarted.current||!chapter||!scenes.length)return;
+    if(new URLSearchParams(window.location.search).get("autostart")!=="1")return;
+    autoStarted.current=true;
+    window.history.replaceState(null,"",window.location.pathname);
+    void withLock(()=>generateSequence());
+  },[chapter,scenes.length,withLock,generateSequence]);
+
   const remainingUnblocked=imageBatchPendingIds(chapter?.sceneIds||[],project.images,project.imageProvider).length;
   const ready=scenes.filter((scene)=>Boolean(scene.image)).length;
   const failedCount=scenes.filter((scene)=>!scene.image&&scene.status==="failed").length;
