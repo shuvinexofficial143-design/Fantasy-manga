@@ -111,6 +111,21 @@ export function ProjectProvider({children}:{children:React.ReactNode}){
   const [persistenceError,setPersistenceError]=useState("");
   const saveQueue=useRef<Promise<void>>(Promise.resolve());
   const saveTimer=useRef<ReturnType<typeof setTimeout>|null>(null);
+  const latestState=useRef(state);
+  latestState.current=state;
+  // Best-effort final checkpoint when Chrome backgrounds/closes a tab.
+  // Pagehide cannot guarantee completion, so downloadable backups remain important.
+  useEffect(()=>{
+    const flush=()=>{
+      if(saveTimer.current){clearTimeout(saveTimer.current);saveTimer.current=null;}
+      saveQueue.current=saveQueue.current.catch(()=>{}).then(()=>saveState(latestState.current));
+    };
+    const visibility=()=>{if(document.visibilityState==="hidden")flush();};
+    window.addEventListener("pagehide",flush);
+    document.addEventListener("visibilitychange",visibility);
+    return ()=>{window.removeEventListener("pagehide",flush);document.removeEventListener("visibilitychange",visibility)};
+  },[]);
+
 
   useEffect(()=>{let mounted=true;void (async()=>{
     try{
