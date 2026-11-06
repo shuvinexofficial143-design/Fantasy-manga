@@ -94,7 +94,7 @@ function normalizeProject(project:Partial<Project>):Project{
   };
 }
 
-function normalizeState(value:unknown):StudioState|null{
+export function normalizeState(value:unknown):StudioState|null{
   if(!value||typeof value!=="object")return null;
   const candidate=value as Partial<StudioState>;
   if(!Array.isArray(candidate.projects)||!candidate.projects.length)return null;
