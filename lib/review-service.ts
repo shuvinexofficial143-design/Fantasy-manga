@@ -47,9 +47,9 @@ export async function recoverVisualReview<T>(task:(timeoutMs:number)=>Promise<T>
     const release=await acquire();
     let failure:ReviewServiceError;
     try{
-      const remaining=(budget.getStore()||Date.now()+70_000)-Date.now();
+      const remaining=(budget.getStore()||Date.now()+125_000)-Date.now();
       if(remaining<1000)throw new ReviewServiceError("timeout");
-      return await task(Math.min(35_000,remaining));
+      return await task(Math.min(50_000,remaining));
     }catch(error){
       // A refusal is a decision, never a recoverable infrastructure error.
       if(["REVIEW_CONTENT_BLOCKED","VERTEX_CONTENT_BLOCKED"].includes((error as {code?:string})?.code||""))throw error;
