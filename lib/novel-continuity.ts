@@ -47,7 +47,8 @@ export function novelReferences(scene:CinematicImage,project:Project,previous?:C
       return character&&isIncidentalCharacter(character)?[character.id]:[];
     }));
     if(incidentalIds.size>=2){
-      const ensemble=[...earlier].reverse().find(frame=>frame.characterStates.filter(state=>incidentalIds.has(state.characterId)).length>=2);
+      const ensemble=[...earlier].reverse().find(frame=>frame.locationId===scene.locationId&&frame.characterStates.filter(state=>incidentalIds.has(state.characterId)).length>=2)
+        ||[...earlier].reverse().find(frame=>frame.characterStates.filter(state=>incidentalIds.has(state.characterId)).length>=2);
       if(ensemble?.image)add(continuity,ensemble.image,`Earlier scene ${ensemble.sceneNumber} — background knight/guard group; reuse collective armor, proportions and formation only, never separate identity sheets or past plot action`);
     }
     const location=project.locations.find((item)=>item.id===scene.locationId);
@@ -66,19 +67,26 @@ export function novelReferences(scene:CinematicImage,project:Project,previous?:C
       const newest=earlier.at(-1);
       const newestIsLocationReference=newest?.image&&newest.locationId===scene.locationId&&continuity.some(ref=>ref.image===newest.image&&ref.label.includes("Previous completed scene"));
       if(!newestIsLocationReference){
-        const anchor=earlier.find((item)=>item.locationId===scene.locationId);
+        const anchor=[...earlier].reverse().find((item)=>item.locationId===scene.locationId);
         add(continuity,anchor?.image,`Earlier scene ${anchor?.sceneNumber} at ${location.name}; architecture only`);
       }
     }
   }
-  // Preserve all existing active identities. The server packs overflow into
-  // temporary reference canvases instead of omitting a person or generating
-  // another character sheet. Text-only integrations still receive no images.
+  // Ranked scene references: main identities > previous frame > location/group > one style.
+  // Avoid packing four redundant style tiles into a five-input edit request.
+  // Only pack when truly required to preserve more active character masters than fit.
   const masters=continuity.filter((ref)=>ref.label.startsWith("Character master:"));
   const other=continuity.filter((ref)=>!masters.includes(ref));
   const refs:Array<{image:string;label:string}>=[];
-  if(limit)for(const ref of [...masters,...other,...styles])add(refs,ref.image,ref.label);
-  return {images:refs.map((ref)=>ref.image),labels:refs.map((ref)=>ref.label),styleCount:refs.filter((ref)=>styles.some((style)=>style.image===ref.image)).length,continuityCount:refs.filter((ref)=>continuity.some((item)=>item.image===ref.image)).length,omittedCharacterNames:[],needsPacking:refs.length>limit,providerLimit:limit};
+  if(limit){
+    for(const ref of masters)add(refs,ref.image,ref.label);
+    for(const ref of other)if(refs.length<limit)add(refs,ref.image,ref.label);
+    // A single consistent palette anchor is normally enough for this scene.
+    // Other uploaded style photos remain saved in the project.
+    if(refs.length<limit&&styles.length)add(refs,styles[0].image,styles[0].label);
+  }
+  const selectedStyles=refs.filter((ref)=>styles.some((style)=>style.image===ref.image));
+  return {images:refs.map((ref)=>ref.image),labels:refs.map((ref)=>ref.label),styleCount:selectedStyles.length,continuityCount:refs.filter((ref)=>continuity.some((item)=>item.image===ref.image)).length,omittedCharacterNames:[],needsPacking:refs.length>limit,providerLimit:limit};
 }
 
 export function namedSceneCharacters(states:Array<{name:string;position:string;action:string;direction:string;expression:string;stateNotes:string}>,characters:Character[]):SceneCharacterState[]{
