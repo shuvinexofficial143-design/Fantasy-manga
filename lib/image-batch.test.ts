@@ -52,4 +52,8 @@ it.each(["gemini","xkiro","sensenova"] as const)("skips semantic or output block
   expect(imageFailureAction(provider,"VISUAL_PREFLIGHT_BLOCKED")).toBe("skip-scene");
   expect(imageFailureAction(provider,"VISUAL_OUTPUT_BLOCKED")).toBe("skip-scene");
   expect(imageFailureAction(provider,"VISUAL_SAFETY_UNAVAILABLE")).toBe("stop-batch");
+  expect(imageFailureAction(provider,"VISUAL_SAFETY_UNAVAILABLE","conflict")).toBe("skip-scene");
+  expect(imageFailureAction(provider,"VISUAL_SAFETY_UNAVAILABLE","timeout")).toBe("skip-scene");
+  expect(imageFailureAction(provider,"VISUAL_SAFETY_UNAVAILABLE","bad-request")).toBe("stop-batch");
+  expect(imageFailureAction(provider,"VISUAL_SAFETY_UNAVAILABLE","authentication")).toBe("stop-batch");
 });
