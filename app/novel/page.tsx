@@ -8,6 +8,7 @@ import {chapterRevision} from "@/lib/chapter-deletion";
 import {createImage} from "@/lib/default-project";
 import {projectImageStyle} from "@/lib/style-presets";
 import {replaceChapterScenes} from "@/lib/novel-workflow";
+import {archiveChapterVersion} from "@/lib/chapter-versions";
 import {currentStoryDraft,notifyStoryDraftChanged,saveStoryDraft,storyDraftKey,storyInputValue,subscribeStoryDraft} from "@/lib/story-drafts";
 import {findLocation,findNamed,namedSceneCharacters} from "@/lib/novel-continuity";
 import type {ChapterAnalysisProgress,Character,Location,NovelChapter,NovelImportState,Project} from "@/lib/types";
@@ -185,6 +186,8 @@ export default function NovelImportPage(){
       activePart=canResume?(oldProgress?.completedParts||0):0;
 
       if(!canResume){
+        // Keep prior chapter and generated pixels available for restore.
+        working=archiveChapterVersion(working,number);
         const oldIds=new Set(oldChapter?.sceneIds||[]);
         const cleanImages=replaceChapterScenes(working.images,oldIds,[]);
         const checkpoint:ChapterAnalysisProgress={
