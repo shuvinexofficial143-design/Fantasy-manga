@@ -7,6 +7,7 @@ import {useEffect,useRef,useState} from "react";
 import {useProject} from "@/components/project-provider";
 import {imageRequestKey,reviewOrGenerateRequest} from "@/lib/review-session";
 import {buildSceneImageRequest} from "@/lib/scene-image-request";
+import {cropVerifiedIdentity,inspectCompletedScene} from "@/lib/scene-visibility-browser";
 import {ImageFailureDetails} from "@/components/image-failure-details";
 import {imageBatchPendingIds,imageFailureAction,isVisualSafetyBlock} from "@/lib/image-batch";
 import {IMAGE_MODELS,selectedImageModel} from "@/lib/image-models";
@@ -46,14 +47,45 @@ export default function ImagesPage(){
 
   const commit=(next:Project)=>setState((current)=>({...current,projects:current.projects.map((item)=>item.id===next.id?next:item)}));
 
+  const preparePriorVisibility=async(sceneId:string,original:Project):Promise<Project>=>{
+    const target=original.images.find(scene=>scene.id===sceneId);
+    if(!target||original.useContinuityReferences===false)return original;
+    const active=new Set(target.characterStates.map(state=>state.characterId));
+    const uninspected=original.images.filter(scene=>scene.image&&scene.sceneNumber<target.sceneNumber
+      &&!scene.visibilityStatus&&scene.characterStates.some(state=>active.has(state.characterId)))
+      .sort((a,b)=>b.sceneNumber-a.sceneNumber).slice(0,2);
+    let current=original;
+    for(const prior of uninspected){
+      generationController.current?.signal.throwIfAborted();
+      const visibility=await inspectCompletedScene(prior,current,generationController.current?.signal);
+      current={...current,images:current.images.map(scene=>scene.id===prior.id?{...scene,...visibility}:scene)};
+      commit(current); // Persist the inspection in the existing Chrome project.
+    }
+    return current;
+  };
+
   const generateScene=(sceneId:string,working:Project)=>async()=>{
     generationController.current?.signal.throwIfAborted();
     const scene=working.images.find((item)=>item.id===sceneId);
     if(!scene)throw new Error("Scene not found.");
     const request=buildSceneImageRequest(sceneId,working);
-    const response=await fetch("/api/generate",{signal:generationController.current?.signal,method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(reviewOrGenerateRequest(request,scene.reviewSession))});
-    const data=await readImageResponse(response,imageRequestKey(request));
-    return {...scene,prompt:data.effectivePrompt||request.prompt,safetyReport:data.safety,image:data.image,provider:data.provider,model:data.model,seed:data.seed,referenceCount:data.referenceCount,status:"completed" as const,error:undefined,failureCode:undefined,failureDiagnostics:undefined,reviewSession:undefined};
+    const {referenceCrops,...baseRequest}=request;
+    const referenceImages:string[]=[],referenceLabels:string[]=[];
+    for(let index=0;index<baseRequest.referenceImages.length;index++){
+      const image=baseRequest.referenceImages[index],crop=referenceCrops[index];
+      try{
+        // Crop only an AI-verified person; if cropping fails, omit the old
+        // portrait rather than accidentally copying the foreground hero.
+        referenceImages.push(crop?await cropVerifiedIdentity(image,crop):image);
+        referenceLabels.push(baseRequest.referenceLabels[index]);
+      }catch{}
+    }
+    const prepared={...baseRequest,referenceImages,referenceLabels};
+    const response=await fetch("/api/generate",{signal:generationController.current?.signal,method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(reviewOrGenerateRequest(prepared,scene.reviewSession))});
+    const data=await readImageResponse(response,imageRequestKey(prepared));
+    const done:CinematicImage={...scene,prompt:data.effectivePrompt||prepared.prompt,safetyReport:data.safety,image:data.image,provider:data.provider,model:data.model,seed:data.seed,referenceCount:data.referenceCount,status:"completed",error:undefined,failureCode:undefined,failureDiagnostics:undefined,reviewSession:undefined};
+    const visibility=await inspectCompletedScene(done,working,generationController.current?.signal);
+    return {...done,...visibility};
   };
 
   const recordFailure=(working:Project,sceneId:string,reason:unknown):Project=>{
@@ -71,8 +103,9 @@ export default function ImagesPage(){
   const generateOne=async(scene:CinematicImage)=>{
     generationController.current=new AbortController();
     setBusy(scene.id);setError("");setNotice("");
-    const working=project;
+    let working=project;
     try{
+      working=await preparePriorVisibility(scene.id,working);
       const done=await generateScene(scene.id,working)();
       commit({...working,images:working.images.map((item)=>item.id===done.id?done:item),updatedAt:new Date().toISOString()});
       setNotice("Scene "+scene.sceneNumber+" image generated with "+selectedModel.label+".");
@@ -100,6 +133,7 @@ export default function ImagesPage(){
           setProgress((working.imageProvider==="sensenova"?"SenseNova":"xKiro")+" · "+(offset+1)+" / "+pendingIds.length+" · क्रम से image बन रही है…");
           for(const id of batch){
             try{
+              working=await preparePriorVisibility(id,working);
               const done=await generateScene(id,working)();
               working={...working,images:working.images.map((item)=>item.id===done.id?done:item),updatedAt:new Date().toISOString()};
               commit(working);
@@ -128,11 +162,13 @@ export default function ImagesPage(){
         }
       }else{
         let offset=0;
-        let concurrency=Math.min(GEMINI_INITIAL_CONCURRENCY,pendingIds.length);
+        const maxConcurrency=working.useContinuityReferences===false?GEMINI_MAX_CONCURRENCY:1;
+        let concurrency=Math.min(working.useContinuityReferences===false?GEMINI_INITIAL_CONCURRENCY:1,pendingIds.length);
         while(offset<pendingIds.length){
           const batch=pendingIds.slice(offset,offset+concurrency);
           setProgress("Google Cloud Gemini · "+Math.min(offset+batch.length,pendingIds.length)+" / "+pendingIds.length+" · "+batch.length+" images parallel generate हो रही हैं…");
-          // Scene-first: generate immediately; never pre-generate character sheets.
+          // Preserve scene-to-scene visual memory by generating sequentially when continuity is enabled.
+          if(working.useContinuityReferences!==false)for(const id of batch)working=await preparePriorVisibility(id,working);
           const results=await Promise.allSettled(batch.map((id)=>generateScene(id,working)()));
           for(const [index,result] of results.entries()){
             working=result.status==="fulfilled"
@@ -143,7 +179,7 @@ export default function ImagesPage(){
           const failed=results.find((result)=>result.status==="rejected"&&imageFailureAction(working.imageProvider,(result.reason as {code?:unknown})?.code,(result.reason as {diagnostics?:CinematicImage["failureDiagnostics"]})?.diagnostics?.reviewFailure?.reason)==="stop-batch");
           if(failed?.status==="rejected")throw failed.reason;
           offset+=batch.length;
-          if(concurrency<GEMINI_MAX_CONCURRENCY&&offset<pendingIds.length)concurrency=Math.min(GEMINI_MAX_CONCURRENCY,concurrency+1);
+          if(concurrency<maxConcurrency&&offset<pendingIds.length)concurrency=Math.min(maxConcurrency,concurrency+1);
         }
       }
       const remaining=chapter.sceneIds.filter((id)=>!working.images.find((item)=>item.id===id)?.image);
