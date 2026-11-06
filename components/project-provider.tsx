@@ -79,6 +79,7 @@ function normalizeProject(project:Partial<Project>):Project{
     analysisModel:typeof project.analysisModel==="string"&&project.analysisModel?project.analysisModel:"gemini-3.1-pro-preview",
     styleReferences:Array.isArray(project.styleReferences)?project.styleReferences.filter((item)=>item&&typeof item.id==="string"&&typeof item.dataUrl==="string").slice(0,4):[],
     novelImport:normalizeNovelImport(project.novelImport),
+    archivedChapters:Array.isArray(project.archivedChapters)?project.archivedChapters.filter(item=>item&&item.chapter&&Array.isArray(item.images)):[],
     characters:Array.isArray(project.characters)?project.characters.map((character)=>({...character,locked:character.locked!==false,continuityNotes:character.continuityNotes||""})):[],
     locations:Array.isArray(project.locations)?project.locations.map((location)=>({...location,locked:location.locked!==false,continuityNotes:location.continuityNotes||""})):[],
     images:Array.isArray(project.images)?project.images.map((image)=>({
@@ -96,7 +97,7 @@ function normalizeProject(project:Partial<Project>):Project{
   };
 }
 
-function normalizeState(value:unknown):StudioState|null{
+export function normalizeState(value:unknown):StudioState|null{
   if(!value||typeof value!=="object")return null;
   const candidate=value as Partial<StudioState>;
   if(!Array.isArray(candidate.projects)||!candidate.projects.length)return null;

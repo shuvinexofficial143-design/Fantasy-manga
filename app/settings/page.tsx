@@ -5,9 +5,10 @@ import {PageHeading,Card} from "@/components/ui";
 import {useProject} from "@/components/project-provider";
 import {VISUAL_DENSITY_OPTIONS} from "@/lib/chapters";
 import {STYLE_PRESETS} from "@/lib/style-presets";
+import {restoreChapterVersion} from "@/lib/chapter-versions";
 
 export default function SettingsPage(){
-  const {project,updateProject,downloadBackup,restoreBackup,persistenceError}=useProject();
+  const {project,setState,updateProject,downloadBackup,restoreBackup,persistenceError}=useProject();
   const fileInput=useRef<HTMLInputElement>(null);
   const [backupStatus,setBackupStatus]=useState("");
   const [restoring,setRestoring]=useState(false);
@@ -51,6 +52,19 @@ export default function SettingsPage(){
         {backupStatus&&<p role="status" className="mt-2 text-xs text-zinc-300">{backupStatus}</p>}
         {persistenceError&&<p role="alert" className="mt-2 text-xs text-amber-300">{persistenceError}</p>}
       </details>
+      {(project.archivedChapters||[]).length>0&&<details className="rounded-xl border border-white/10 p-3 text-sm">
+        <summary className="cursor-pointer font-semibold">Chapter Version History · {project.archivedChapters?.length}</summary>
+        <p className="mt-2 text-xs text-zinc-400">पुराना Chapter Restore करने पर नया Version भी सुरक्षित रहेगा।</p>
+        <div className="mt-3 space-y-2">
+          {(project.archivedChapters||[]).slice().reverse().map(item=><div key={item.id} className="flex items-center justify-between gap-2 rounded-lg bg-white/5 p-2 text-xs">
+            <span className="min-w-0 truncate">Chapter {item.chapter.number} · {item.images.filter(image=>Boolean(image.image)).length} images</span>
+            <button type="button" className="rounded-lg border border-white/20 px-2 py-1 font-semibold" onClick={()=>{
+              setState(current=>({...current,projects:current.projects.map(p=>p.id===project.id?restoreChapterVersion(p,item.id):p)}));
+              setBackupStatus("Chapter "+item.chapter.number+" का पिछला Version Restore हो गया।");
+            }}>Restore</button>
+          </div>)}
+        </div>
+      </details>}
     </Card>
   </>;
 }

@@ -55,8 +55,11 @@ export function buildCinematicPrompt({scene,project,previousScene}:{scene:Cinema
   ].filter(Boolean).join("; ")).join("\n"):"No additional recurring person is required unless the current visual introduces one.";
   // Previous frames supply visual continuity, not their story action or wounds.
   // A quiet next scene must not inherit a violent flashback in its text prompt.
+  const sameLocation=Boolean(previousScene&&scene.locationId&&scene.locationId===previousScene.locationId);
   const previousText=previousScene
-    ?"Use the attached previous frame only for established faces, intact clothing, architecture, palette, lighting, landmarks and screen direction. Depict only the CURRENT STORY MOMENT; carry forward visual design rather than previous story actions."
+    ?sameLocation
+      ?"Use the previous frame for faces, outfits, established architecture, landmarks, palette and screen direction. Depict only the CURRENT STORY MOMENT, not the prior action."
+      :"The location has changed. Use the previous frame for recurring faces, costumes, palette and rendering only. DO NOT transplant its background, doors, windows, landmarks or camera geography into the new location."
     :"This is the first frame; establish the canonical screen geography clearly.";
   const lockedStyle=safeDetail(projectImageStyle(project),"Cohesive full-color fantasy illustration with expressive characters and atmospheric lighting");
   const styleReferenceCount=novelReferences(scene,project,previousScene).styleCount;
@@ -77,6 +80,7 @@ export function buildCinematicPrompt({scene,project,previousScene}:{scene:Cinema
         safeDetail(`${location.name} — ${location.description}; lighting=${location.lighting}; locked facts=${location.continuityNotes||"preserve architecture and landmark placement"}`,"Preserve established architecture, landmarks and atmospheric lighting")
       :"Continue the established location unless the story changes it."}`,
     `CHARACTER BIBLE + CURRENT STATE:\n${characterBible}`,
+    scene.directorPrompt?.trim()?`AI DIRECTOR COMPOSITION: ${safeDetail(scene.directorPrompt.slice(0,1300),"Preserve continuity and the current story beat")}`:"",
     `CAMERA CONTINUITY: shot=${safeDetail(scene.cameraShot,"medium reaction shot")}; angle=${safeDetail(scene.cameraAngle,"eye level")}; screen direction=${safeDetail(scene.cameraDirection,"preserve previous screen direction")}. Preserve left/right geography and eye lines.`,
     `PREVIOUS SCENE STATE:\n${previousText}`,
     !adjusted&&scene.continuityNotes?`CURRENT CONTINUITY NOTES: ${safeDetail(scene.continuityNotes,"preserve identity and setting")}`:"",
