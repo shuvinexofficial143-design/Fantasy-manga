@@ -76,6 +76,22 @@ it("retains both active character sheets before using the remaining style slots"
  const refs=novelReferences(scene,project);expect(refs.images.slice(0,2)).toEqual(["sheet-a","sheet-b"]);expect(refs.images).toHaveLength(6);expect(refs.needsPacking).toBe(true);expect(refs.omittedCharacterNames).toEqual([]);
 });
 
+it("ignores four saved background Knight sheets and reuses one group frame from a previous chapter",()=>{
+ const project=createProject();project.imageProvider="sensenova";
+ const hero={id:"hero",name:"Lucien",role:"main",appearance:"Child",outfit:"Blue tunic",referenceImage:"hero-master"};
+ const knights=Array.from({length:4},(_,i)=>({id:"knight-"+i,name:"Knight "+(i+1),role:"support",appearance:"Armored guard",outfit:"Steel",referenceImage:"old-knight-"+i}));
+ project.characters=[hero,...knights];
+ const states=[hero,...knights].map(c=>({characterId:c.id,position:c.id==="hero"?"center":"background",action:"stand",direction:"left",expression:"neutral",stateNotes:""}));
+ const former=createImage(7,"Previous chapter ensemble",states);former.chapterNumber=1;former.image="one-completed-ensemble";
+ const next=createImage(8,"Chapter two reunion",states);next.chapterNumber=2;next.usePreviousImage=false;
+ project.images=[former,next];
+ const before=JSON.stringify(project),refs=novelReferences(next,project);
+ expect(refs.images).toEqual(["hero-master","one-completed-ensemble"]);
+ expect(refs.labels[1]).toContain("background knight/guard group");
+ expect(refs.labels.some(label=>label.includes("Character master: Knight"))).toBe(false);
+ expect(refs.images.every(image=>!image.startsWith("old-knight-"))).toBe(true);
+ expect(JSON.stringify(project)).toBe(before);
+});
 it("reuses a recurring character's first completed scene without creating a master or using future scenes",()=>{
  const project=createProject();project.imageProvider="sensenova";
  project.characters=[{id:"guest",name:"Guest",role:"support",appearance:"Adult",outfit:"Green"}];
