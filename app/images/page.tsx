@@ -81,7 +81,7 @@ export default function ImagesPage(){
     generationController.current=new AbortController();
     setBusy("sequence");setError("");setNotice("");
     let working=project;
-    let skippedSensitive=0;
+    let skippedSensitive=0,skippedReviewFailures=0,consecutiveReviewFailures=0;
     try{
       // A provider-blocked scene must be reviewed manually before it is retried.
       const targetIds=retryFailed?chapter.sceneIds.filter((id)=>working.images.find((scene)=>scene.id===id)?.status==="failed"):chapter.sceneIds;
@@ -98,16 +98,23 @@ export default function ImagesPage(){
               const done=await generateScene(id,working)();
               working={...working,images:working.images.map((item)=>item.id===done.id?done:item),updatedAt:new Date().toISOString()};
               commit(working);
+              consecutiveReviewFailures=0;
             }catch(reason){
               working=recordFailure(working,id,reason);
               commit(working);
               const failureCode=(reason as {code?:unknown}|null)?.code;
-              if(imageFailureAction(working.imageProvider,failureCode)==="skip-scene"){
-                // The provider refused this ONE frame. Save its error and
-                // continue the sequence, including after consecutive refusals.
-                // Never automatically resubmit a rejected request.
-                skippedSensitive++;
-                setProgress("Safety review skipped "+skippedSensitive+" scene(s). अगली image जारी है…");
+              const reviewReason=(reason as {diagnostics?:CinematicImage["failureDiagnostics"]})?.diagnostics?.reviewFailure?.reason;
+              if(imageFailureAction(working.imageProvider,failureCode,reviewReason)==="skip-scene"){
+                // No generation without this scene's completed safety review.
+                // Keep it failed and let the next scene run its own checks.
+                if(failureCode==="VISUAL_SAFETY_UNAVAILABLE"){
+                  skippedReviewFailures++;consecutiveReviewFailures++;
+                  setProgress("Reviewer timeout/conflict: "+skippedReviewFailures+" scene(s) failed रखे। अगला scene जाँचेंगे…");
+                  if(consecutiveReviewFailures>=3)throw new Error("Visual review service लगातार 3 scenes में उपलब्ध नहीं है। पहले से बनी images सुरक्षित हैं। बाकी scenes को बाद में Generate Remaining से जारी रखें।");
+                }else{
+                  skippedSensitive++;consecutiveReviewFailures=0;
+                  setProgress("Safety review skipped "+skippedSensitive+" scene(s). अगली image जारी है…");
+                }
                 continue;
               }
               throw reason;
@@ -123,7 +130,7 @@ export default function ImagesPage(){
           const readyIds:string[]=[];
           for(const id of batch){
             try{working=await ensureAutomaticCharacterReferences(working,[id],next=>{working=next;commit(next)},setProgress,generationController.current.signal);readyIds.push(id)}
-            catch(reason){working=recordFailure(working,id,reason);commit(working);if(imageFailureAction(working.imageProvider,(reason as {code?:unknown})?.code)==="stop-batch")throw reason}
+            catch(reason){working=recordFailure(working,id,reason);commit(working);if(imageFailureAction(working.imageProvider,(reason as {code?:unknown})?.code,(reason as {diagnostics?:CinematicImage["failureDiagnostics"]})?.diagnostics?.reviewFailure?.reason)==="stop-batch")throw reason}
           }
           const results=await Promise.allSettled(readyIds.map((id)=>generateScene(id,working)()));
           for(const [index,result] of results.entries()){
@@ -132,7 +139,7 @@ export default function ImagesPage(){
               :recordFailure(working,readyIds[index],result.reason);
           }
           commit(working);
-          const failed=results.find((result)=>result.status==="rejected"&&imageFailureAction(working.imageProvider,(result.reason as {code?:unknown})?.code)==="stop-batch");
+          const failed=results.find((result)=>result.status==="rejected"&&imageFailureAction(working.imageProvider,(result.reason as {code?:unknown})?.code,(result.reason as {diagnostics?:CinematicImage["failureDiagnostics"]})?.diagnostics?.reviewFailure?.reason)==="stop-batch");
           if(failed?.status==="rejected")throw failed.reason;
           offset+=batch.length;
           if(concurrency<GEMINI_MAX_CONCURRENCY&&offset<pendingIds.length)concurrency=Math.min(GEMINI_MAX_CONCURRENCY,concurrency+1);
@@ -141,8 +148,9 @@ export default function ImagesPage(){
       const remaining=chapter.sceneIds.filter((id)=>!working.images.find((item)=>item.id===id)?.image);
       if(remaining.length){
         const blocked=remaining.filter((id)=>working.images.find((item)=>item.id===id)?.failureCode==="SENSENOVA_SENSITIVE_IMAGE"||isVisualSafetyBlock(working.images.find((item)=>item.id===id)?.failureCode)).length;
-        if(blocked){
-          setError(blocked+" scene(s) visual safety check में skip हुए। बाकी scenes की generation जारी रखी गई और तैयार images सुरक्षित हैं। इन failed scenes के लिए जरूरत हो तो Retry Image इस्तेमाल करें।");
+        const transport=remaining.filter(id=>working.images.find(item=>item.id===id)?.failureCode==="VISUAL_SAFETY_UNAVAILABLE").length;
+        if(blocked||transport){
+          setError((blocked?blocked+" scene(s) safety check में skip हुए। ":"")+(transport?transport+" scene(s) में reviewer timeout/conflict हुआ। ":"")+"बाकी images जारी रहीं और तैयार images सुरक्षित हैं। Failed scenes के लिए Retry Image इस्तेमाल करें।");
         }else{
           setNotice(remaining.length+" image(s) अभी बाकी हैं। Generate Remaining से आगे बढ़ाएँ।");
         }
