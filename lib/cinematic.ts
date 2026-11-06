@@ -25,7 +25,8 @@ export function splitStoryIntoScenes(story:string){
 
 function stateText(state:SceneCharacterState,character?:Character){
   const name=character?.name||state.characterId;
-  return `${name}: position=${state.position||"unspecified"}; action=${state.action||"continue naturally"}; facing/direction=${state.direction||"preserve prior direction"}; expression=${state.expression||"story-appropriate"}; persistent state=${state.stateNotes||"unchanged"}`;
+  const depth=/background|distant|far|पृष्ठभूमि|पीछे|दूर/i.test(state.position)?"far/background plane":/foreground|near|close|सामने|पास/i.test(state.position)?"near/foreground plane":"midground plane";
+  return `${name}: screen position=${state.position||"unspecified"}; scene depth=${depth}; action=${state.action||"continue naturally"}; torso and facial facing=${state.direction||"preserve prior direction"}; expression=${state.expression||"story-appropriate"}; persistent state=${state.stateNotes||"unchanged"}`;
 }
 
 export function summarizeSceneContinuity(scene:CinematicImage,project:Project){
@@ -44,6 +45,7 @@ export function buildCinematicPrompt({scene,project,previousScene}:{scene:Cinema
     state,character:project.characters.find((item)=>item.id===state.characterId)
   })).filter((item):item is {state:SceneCharacterState;character:Character}=>Boolean(item.character));
   const location=project.locations.find((item)=>item.id===scene.locationId);
+  const lastMatchingLocation=scene.locationId?[...project.images].filter(item=>item.sceneNumber<scene.sceneNumber&&item.image&&item.locationId===scene.locationId).sort((a,b)=>b.sceneNumber-a.sceneNumber)[0]:undefined;
   const safeDetail=(value:string|undefined,fallback:string)=>value&&sceneNeedsVisualAdaptation(value)?fallback:value||fallback;
   const characterBible=activeCharacters.length?activeCharacters.map(({character,state})=>[
     `${safeDetail(character.name,"established character")} (${safeDetail(character.role,"recurring character")})`,
@@ -79,6 +81,9 @@ export function buildCinematicPrompt({scene,project,previousScene}:{scene:Cinema
       ?adjusted?`${safeDetail(location.name,"established setting")}; lighting=${safeDetail(location.lighting,"atmospheric lighting")}; preserve established architecture and landmarks`:
         safeDetail(`${location.name} — ${location.description}; lighting=${location.lighting}; locked facts=${location.continuityNotes||"preserve architecture and landmark placement"}`,"Preserve established architecture, landmarks and atmospheric lighting")
       :"Continue the established location unless the story changes it."}`,
+    "WORLD DETAIL & DEPTH: Build a rich story-faithful environment with foreground props, midground structures and deep background layers. Show credible building materials, surfaces, terrain, light sources, texture detail, atmospheric perspective, practical scale and spatial occlusion. Do not use a generic empty background. Preserve established architecture and world facts; do not invent new permanent landmarks.",
+    lastMatchingLocation?`SAME-LOCATION WORLD ANCHOR: The most recently completed image of THIS SAME LOCATION is scene ${lastMatchingLocation.sceneNumber}, potentially from an earlier chapter. Preserve its walls, doors, windows, pillars, furniture, roads, floor layout, skyline, fixed props and light direction. Camera motion changes perspective, NEVER their world positions. Do not copy unrelated people or earlier actions.`:"LOCATION FIRST APPEARANCE: Establish a coherent layout grounded in the story, to be reused in later scenes. Do not borrow architecture from a different location.",
+    `CHARACTER STAGING & VIEW ANGLES: ${activeCharacters.map(({character,state})=>`${safeDetail(character.name,"character")} at ${safeDetail(state.position,"unspecified")}; ${/background|far|distant|पृष्ठभूमि|दूर/i.test(state.position)?"far background plane":/foreground|near|close|सामने/i.test(state.position)?"near foreground plane":"middle plane"}; head/face and torso angle ${safeDetail(state.direction,"natural eye line")}; action ${safeDetail(state.action,"current action")}; expression ${safeDetail(state.expression,"current expression")}`).join(" | ")||"No foreground person required"}. Use relative distances, subject scale, eye lines, occlusion and body portions; never invent exact metres not stated in the story. Distant extras must remain distant, not become new principals.`,
     `CHARACTER BIBLE + CURRENT STATE:\n${characterBible}`,
     scene.directorPrompt?.trim()?`AI DIRECTOR COMPOSITION: ${safeDetail(scene.directorPrompt.slice(0,1300),"Preserve continuity and the current story beat")}`:"",
     `CAMERA CONTINUITY: shot=${safeDetail(scene.cameraShot,"medium reaction shot")}; angle=${safeDetail(scene.cameraAngle,"eye level")}; screen direction=${safeDetail(scene.cameraDirection,"preserve previous screen direction")}. Preserve left/right geography and eye lines.`,

@@ -30,6 +30,15 @@ export type Location={
   referenceImage?:string;
 };
 
+export type ImageBoundingBox={x:number;y:number;width:number;height:number};
+export type CharacterVisibility={
+  characterId:string;
+  clarity:"clear"|"partial"|"tiny"|"occluded"|"uncertain"|"not-visible";
+  confidence:number;
+  faceVisible:boolean;
+  box?:ImageBoundingBox;
+};
+
 export type SceneCharacterState={
   characterId:string;
   position:string;
@@ -115,6 +124,8 @@ export type CinematicImage={
   model?:string;
   seed?:number;
   referenceCount?:number;
+  characterVisibility?:CharacterVisibility[];
+  visibilityStatus?:"verified"|"unavailable";
   status:"idle"|"generating"|"completed"|"failed";
   error?:string;
   failureCode?:string;
