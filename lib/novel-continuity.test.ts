@@ -2,142 +2,99 @@ import {describe,expect,it} from "vitest";
 import {createImage,createProject} from "./default-project";
 import {novelReferences} from "./novel-continuity";
 
-describe("novel visual anchors",()=>{
-  it("prioritizes the immediate frame, then adds uploaded style anchors",()=>{
-    const project=createProject();
-    project.styleReferences=Array.from({length:4},(_,index)=>({
-      id:"style-"+index,
-      name:"Style "+(index+1),
-      dataUrl:"data:image/png;base64,c3R5bGU"+index
-    }));
-    const first=createImage(1,"Hero enters");
-    first.image="data:image/png;base64,Zmlyc3Q=";
-    const second=createImage(2,"Hero continues");
-    project.images=[first,second];
-    const refs=novelReferences(second,project,first);
-    expect(refs.styleCount).toBe(1);
-    expect(refs.continuityCount).toBe(1);
-    expect(refs.images).toHaveLength(2);
-    expect(refs.labels[0]).toContain("Previous completed scene 1");
-    expect(refs.labels[1]).toContain("style reference 1");
+const state=(id:string,position="left",direction="front")=>({characterId:id,position,action:"present",direction,expression:"calm",stateNotes:""});
+describe("scene-only reference selection",()=>{
+  it("prioritizes completed previous scene, then one optional style anchor",()=>{
+    const p=createProject();p.imageProvider="sensenova";
+    p.styleReferences=Array.from({length:4},(_,i)=>({id:"s"+i,name:"style",dataUrl:"style"+i}));
+    const before=createImage(1,"First");before.image="completed";const after=createImage(2,"Second");
+    p.images=[before,after];
+    const refs=novelReferences(after,p,before);
+    expect(refs.images).toEqual(["completed","style0"]);
+    expect(refs.providerLimit).toBe(5);
+    expect(refs.needsPacking).toBe(false);
   });
-
-  it("uses the latest completed frame for continuity without redundant older frames",()=>{
-    const project=createProject();
-    const person={id:"hero",name:"Hero",role:"Main",appearance:"Black hair",outfit:"Blue coat"};
-    project.characters=[person];
-    project.locations=[{id:"hall",name:"Hall",description:"Stone arches",lighting:"Day"}];
-    const first=createImage(1,"Hero enters",[{characterId:"hero",position:"left",action:"enter",direction:"right",expression:"calm",stateNotes:"blue coat"}]);
-    first.locationId="hall";first.image="data:image/png;base64,Zmlyc3Q=";
-    const second=createImage(2,"Hero speaks",first.characterStates);second.locationId="hall";second.image="data:image/png;base64,c2Vjb25k";
-    const third=createImage(3,"Hero moves",first.characterStates);third.locationId="hall";
-    project.images=[first,second,third];
-    const refs=novelReferences(third,project,second);
-    expect(refs.images).toEqual([second.image]);
-    expect(refs.labels[0]).toContain("Previous completed scene 2");
+  it("never sends legacy character master sheets to generated scenes",()=>{
+    const p=createProject();p.imageProvider="sensenova";
+    p.characters=[{id:"hero",name:"Hero",role:"main",appearance:"Black hair",outfit:"Blue",referenceImage:"four-view-master"}];
+    const first=createImage(1,"Hero appears",[state("hero")]);first.image="hero-scene";
+    const second=createImage(2,"Hero returns",[state("hero")]);p.images=[first,second];
+    const refs=novelReferences(second,p,first);
+    expect(refs.images).toEqual(["hero-scene"]);
+    expect(refs.images).not.toContain("four-view-master");
   });
-});
-
-it("reserves SenseNova reference slots for identity and recent continuity before style",()=>{
-  const project=createProject();project.imageProvider="sensenova";
-  project.styleReferences=Array.from({length:4},(_,i)=>({id:"s"+i,name:"s"+i,dataUrl:"style"+i}));
-  project.characters=[{id:"hero",name:"Hero",role:"lead",appearance:"dark hair",outfit:"blue",referenceImage:"master"}];
-  const previous=createImage(1,"Enters");previous.image="previous";
-  const scene=createImage(2,"Speaks",[{characterId:"hero",position:"left",action:"talks",direction:"right",expression:"calm",stateNotes:""}]);
-  project.images=[previous,scene];
-  const refs=novelReferences(scene,project,previous);
-  expect(refs.images).toEqual(["master","previous","style0"]);expect(refs.needsPacking).toBe(false);
-  expect(refs.styleCount).toBe(1);expect(refs.continuityCount).toBe(2);
-});
-
-it.each([[true,true],[false,true],[true,false],[false,false]])("honors style=%s and continuity=%s switches independently",(style,continuity)=>{
-  const project=createProject();project.useStyleReferences=style;project.useContinuityReferences=continuity;
-  project.styleReferences=[{id:"s",name:"style",dataUrl:"style"}];
-  const previous=createImage(1,"Enters");previous.image="previous";
-  const scene=createImage(2,"Speaks");project.images=[previous,scene];
-  expect(novelReferences(scene,project,previous).images).toEqual([...(continuity?["previous"]:[]),...(style?["style"]:[])]);
-});
-
-it("sends no images to text-only xKiro and only one to its single-reference model",()=>{
-  const project=createProject();project.imageProvider="xkiro";project.imageModel="sensenova/sensenova-u1.5-lite";
-  project.styleReferences=[{id:"s",name:"style",dataUrl:"style"}];
-  const scene=createImage(1,"Speaks");
-  expect(novelReferences(scene,project).images).toEqual([]);
-  project.imageModel="openai/gpt-image-2.5";
-  expect(novelReferences(scene,project).images).toEqual(["style"]);
-});
-
-it("retains both active character sheets before using the remaining style slots",()=>{
- const project=createProject();project.imageProvider="sensenova";project.imageModel="sensenova-u1.5-lite";
- project.characters=[{id:"a",name:"A",role:"lead",appearance:"Adult",outfit:"Blue",referenceImage:"sheet-a"},{id:"b",name:"B",role:"lead",appearance:"Adult",outfit:"Red",referenceImage:"sheet-b"}];
- project.styleReferences=Array.from({length:4},(_,i)=>({id:"style"+i,name:"style",dataUrl:"style"+i}));
- const scene=createImage(1,"A and B talk",project.characters.map(c=>({characterId:c.id,position:"left",action:"talk",direction:"right",expression:"calm",stateNotes:""})));
- const refs=novelReferences(scene,project);expect(refs.images.slice(0,2)).toEqual(["sheet-a","sheet-b"]);expect(refs.images).toEqual(["sheet-a","sheet-b","style0"]);expect(refs.needsPacking).toBe(false);expect(refs.omittedCharacterNames).toEqual([]);
-});
-
-it("ignores four saved background Knight sheets and reuses one group frame from a previous chapter",()=>{
- const project=createProject();project.imageProvider="sensenova";
- const hero={id:"hero",name:"Lucien",role:"main",appearance:"Child",outfit:"Blue tunic",referenceImage:"hero-master"};
- const knights=Array.from({length:4},(_,i)=>({id:"knight-"+i,name:"Knight "+(i+1),role:"support",appearance:"Armored guard",outfit:"Steel",referenceImage:"old-knight-"+i}));
- project.characters=[hero,...knights];
- const states=[hero,...knights].map(c=>({characterId:c.id,position:c.id==="hero"?"center":"background",action:"stand",direction:"left",expression:"neutral",stateNotes:""}));
- const former=createImage(7,"Previous chapter ensemble",states);former.chapterNumber=1;former.image="one-completed-ensemble";
- const next=createImage(8,"Chapter two reunion",states);next.chapterNumber=2;next.usePreviousImage=false;
- project.images=[former,next];
- const before=JSON.stringify(project),refs=novelReferences(next,project);
- expect(refs.images).toEqual(["hero-master","one-completed-ensemble"]);
- expect(refs.labels[1]).toContain("background knight/guard group");
- expect(refs.labels.some(label=>label.includes("Character master: Knight"))).toBe(false);
- expect(refs.images.every(image=>!image.startsWith("old-knight-"))).toBe(true);
- expect(JSON.stringify(project)).toBe(before);
-});
-it("reuses a recurring character's most recent completed scene without using future scenes",()=>{
- const project=createProject();project.imageProvider="sensenova";
- project.characters=[{id:"guest",name:"Guest",role:"support",appearance:"Adult",outfit:"Green"}];
- const states=[{characterId:"guest",position:"left",action:"talk",direction:"right",expression:"calm",stateNotes:""}];
- project.images=Array.from({length:4},(_,i)=>createImage(i+1,"Guest talks",states));
- project.images[0].image="first-scene";project.images[1].image="second-scene";project.images[3].image="future-scene";
- project.images[2].usePreviousImage=false;
- const before=JSON.stringify(project),refs=novelReferences(project.images[2],project);
- expect(refs.images).toEqual(["second-scene"]);expect(refs.labels[0]).toContain("containing Guest");expect(JSON.stringify(project)).toBe(before);
- expect(novelReferences(project.images[0],project).images).toEqual([]);
-});
-it("keeps legacy uploaded character images and merges shared ensemble anchor roles",()=>{
- const project=createProject();project.imageProvider="sensenova";
- project.characters=[{id:"a",name:"A",role:"lead",appearance:"Adult",outfit:"Blue",referenceImage:"saved-portrait"},{id:"b",name:"B",role:"support",appearance:"Adult",outfit:"Green"},{id:"c",name:"C",role:"support",appearance:"Adult",outfit:"Red"}];
- const states=project.characters.map(c=>({characterId:c.id,position:"left",action:"talk",direction:"right",expression:"calm",stateNotes:""}));
- const first=createImage(1,"Ensemble",states);first.image="ensemble";const second=createImage(2,"Talk",states);second.usePreviousImage=false;project.images=[first,second];
- const refs=novelReferences(second,project);expect(refs.images).toEqual(["saved-portrait","ensemble"]);expect(refs.labels[1]).toContain("containing B");expect(refs.labels[1]).toContain("containing C");
-});
-
-
-it("chooses the newest character and location anchor, not an obsolete first appearance",()=>{
-  const project=createProject();project.imageProvider="sensenova";
-  project.characters=[{id:"guest",name:"Guest",role:"support",appearance:"Adult",outfit:"Green"}];
-  project.locations=[{id:"hall",name:"Hall",description:"Arches",lighting:"Day"}];
-  const person=[{characterId:"guest",position:"left",action:"walk",direction:"right",expression:"calm",stateNotes:""}];
-  const first=createImage(1,"Guest enters",person);first.locationId="hall";first.image="old-hall";
-  const second=createImage(2,"Guest returns",person);second.locationId="hall";second.image="recent-hall";
-  const target=createImage(3,"Guest returns again",person);target.locationId="hall";target.usePreviousImage=false;
-  project.images=[first,second,target];
-  const refs=novelReferences(target,project);
-  expect(refs.images).toEqual(["recent-hall"]);
-  expect(refs.images).not.toContain("old-hall");
-  expect(refs.labels[0]).toContain("containing Guest");
-  expect(refs.labels[0]).toContain(" at Hall");
-});
-
-it("fits five SenseNova inputs without shrinking multiple character faces into mosaic sheets",()=>{
-  const project=createProject();project.imageProvider="sensenova";
-  project.styleReferences=Array.from({length:4},(_,i)=>({id:"style"+i,name:"Style",dataUrl:"style"+i}));
-  project.characters=Array.from({length:3},(_,i)=>({id:"lead"+i,name:"Lead "+i,role:"lead",appearance:"Adult",outfit:"Blue",referenceImage:"master"+i}));
-  project.locations=[{id:"hall",name:"Hall",description:"Stone hall",lighting:"Day",referenceImage:"location-master"}];
-  const previous=createImage(1,"Before");previous.image="previous";
-  const states=project.characters.map((c)=>({characterId:c.id,position:"left",action:"talk",direction:"right",expression:"calm",stateNotes:""}));
-  const scene=createImage(2,"After",states);scene.locationId="hall";project.images=[previous,scene];
-  const refs=novelReferences(scene,project,previous);
-  expect(refs.images).toEqual(["master0","master1","master2","previous","location-master"]);
-  expect(refs.images.length).toBeLessThanOrEqual(5);
-  expect(refs.needsPacking).toBe(false);
-  expect(refs.styleCount).toBe(0);
+  it("reuses an earlier chapter scene when a character returns later",()=>{
+    const p=createProject();p.imageProvider="sensenova";
+    p.characters=[{id:"doctor",name:"Dr Rao",role:"support",appearance:"Dark hair",outfit:"White coat"}];
+    const first=createImage(1,"Doctor in clinic",[state("doctor")]);first.chapterNumber=1;first.image="doctor-ch1";
+    const middle=createImage(2,"Different location");middle.chapterNumber=2;middle.image="unrelated";
+    const next=createImage(3,"Doctor returns",[state("doctor")]);next.chapterNumber=4;next.usePreviousImage=false;
+    p.images=[first,middle,next];
+    const refs=novelReferences(next,p);
+    expect(refs.images).toEqual(["doctor-ch1"]);
+    expect(refs.labels[0]).toContain("Dr Rao");
+  });
+  it("prefers a clearer foreground scene over a recent blurry crowd image",()=>{
+    const p=createProject();p.imageProvider="sensenova";
+    p.characters=[{id:"doctor",name:"Doctor",role:"support",appearance:"Dark hair",outfit:"White"}];
+    const clear=createImage(1,"Clear face",[state("doctor")]);clear.cameraShot="close-up";clear.image="clear";
+    const crowd=createImage(2,"Crowd",[state("doctor","background","back view")]);crowd.cameraShot="extreme wide";crowd.image="tiny";
+    const target=createImage(3,"Doctor returns",[state("doctor")]);target.usePreviousImage=false;
+    p.images=[clear,crowd,target];
+    expect(novelReferences(target,p).images).toEqual(["clear"]);
+  });
+  it("uses one existing group frame for four knights without their saved legacy masters",()=>{
+    const p=createProject();p.imageProvider="sensenova";
+    p.characters=Array.from({length:4},(_,i)=>({id:"k"+i,name:"Knight "+(i+1),role:"support",appearance:"Armor",outfit:"Steel",referenceImage:"old-master-"+i}));
+    const group=createImage(1,"Guard group",p.characters.map(c=>state(c.id,"background")));group.image="group-photo";group.chapterNumber=1;
+    const next=createImage(2,"Guard group returns",group.characterStates);next.usePreviousImage=false;next.chapterNumber=6;
+    p.images=[group,next];
+    const refs=novelReferences(next,p);
+    expect(refs.images).toEqual(["group-photo"]);
+    expect(refs.labels[0]).toContain("recurring group");
+    expect(refs.images.some(v=>v.startsWith("old-master"))).toBe(false);
+  });
+  it("never uses future-scene images even if a later scene was already rendered",()=>{
+    const p=createProject();p.imageProvider="sensenova";
+    p.characters=[{id:"guest",name:"Guest",role:"support",appearance:"Adult",outfit:"Green"}];
+    const old=createImage(1,"Earlier",[state("guest")]);old.image="old";
+    const current=createImage(2,"Current",[state("guest")]);current.usePreviousImage=false;
+    const future=createImage(3,"Future",[state("guest")]);future.image="future";
+    p.images=[old,current,future];
+    expect(novelReferences(current,p).images).toEqual(["old"]);
+    expect(novelReferences(old,p).images).toEqual([]);
+  });
+  it("does not send images to a text-only model; respects one-reference mode",()=>{
+    const p=createProject();p.imageProvider="xkiro";p.imageModel="sensenova/sensenova-u1.5-lite";
+    p.styleReferences=[{id:"a",name:"style",dataUrl:"style"}];
+    const scene=createImage(1,"First");p.images=[scene];
+    expect(novelReferences(scene,p).images).toEqual([]);
+    p.imageModel="openai/gpt-image-2.5";
+    expect(novelReferences(scene,p).images).toEqual(["style"]);
+  });
+  it("limits SenseNova to five references without mosaic or deleting old images",()=>{
+    const p=createProject();p.imageProvider="sensenova";
+    p.characters=Array.from({length:8},(_,i)=>({id:"person"+i,name:"Person "+i,role:"support",appearance:"Adult",outfit:"Outfit"}));
+    p.images=p.characters.map((c,i)=>{
+      const scene=createImage(i+1,"Solo",[state(c.id)]);scene.image="scene"+i;return scene;
+    });
+    const target=createImage(9,"All together",p.characters.map(c=>state(c.id)));
+    target.usePreviousImage=false;p.images.push(target);
+    const before=JSON.stringify(p);
+    const refs=novelReferences(target,p);
+    expect(refs.images).toHaveLength(5);
+    expect(refs.needsPacking).toBe(false);
+    expect(JSON.stringify(p)).toBe(before);
+  });
+  it("uses earlier matching location frames only when continuity is enabled",()=>{
+    const p=createProject();p.imageProvider="sensenova";
+    p.locations=[{id:"clinic",name:"Clinic",description:"Blue door",lighting:"Day"}];
+    const old=createImage(1,"Clinic");old.image="clinic-1";old.locationId="clinic";
+    const newer=createImage(2,"Clinic later");newer.image="clinic-2";newer.locationId="clinic";
+    const target=createImage(3,"Clinic return");target.locationId="clinic";target.usePreviousImage=false;
+    p.images=[old,newer,target];
+    expect(novelReferences(target,p).images).toEqual(["clinic-2"]);
+    p.useContinuityReferences=false;
+    expect(novelReferences(target,p).images).toEqual([]);
+  });
 });
