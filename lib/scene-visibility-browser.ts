@@ -23,11 +23,20 @@ export async function resizeVisionImage(source:string):Promise<string>{
 /** This extracts pixels from an already generated image. It never calls an
  * image generator and never creates/stores a permanent character master.
  */
+/** Only facial design + the collar/upper-costume material are reused.
+ * Never crop an entire pose or the surrounding room: a large body crop
+ * encourages an image editor to paste the prior action into a new scene.
+ */
+export function facialDesignCrop(box:ImageBoundingBox):ImageBoundingBox{
+  const width=Math.min(.42,box.width*.82),height=Math.min(.42,box.height*.43);
+  const x=Math.max(0,Math.min(1-width,box.x+(box.width-width)/2));
+  const y=Math.max(0,Math.min(1-height,box.y+box.height*.035));
+  return {x,y,width,height};
+}
 export async function cropVerifiedIdentity(source:string,box:ImageBoundingBox):Promise<string>{
   const image=await loadImage(source);
-  const padX=Math.max(.014,box.width*.15),padY=Math.max(.014,box.height*.10);
-  const x=Math.max(0,box.x-padX),y=Math.max(0,box.y-padY);
-  const right=Math.min(1,box.x+box.width+padX),bottom=Math.min(1,box.y+box.height+padY);
+  const face=facialDesignCrop(box);
+  const x=face.x,y=face.y,right=Math.min(1,x+face.width),bottom=Math.min(1,y+face.height);
   const canvas=document.createElement("canvas");
   const scale=Math.min(1,900/Math.max((right-x)*image.naturalWidth,(bottom-y)*image.naturalHeight));
   canvas.width=Math.max(1,Math.round((right-x)*image.naturalWidth*scale));
