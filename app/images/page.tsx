@@ -185,7 +185,7 @@ export default function ImagesPage(){
       </div>
     </section>
 
-    <p className="text-xs leading-5 text-slate-500">Recurring मुख्य characters की missing 4-view reference अपने आप बनेगी। Saved references reuse होंगी। Background/one-off characters की अलग sheet नहीं बनेगी; उनकी पहली scene आगे reference होगी।</p>
+    <p className="text-xs leading-5 text-slate-500">Recurring मुख्य characters की missing 4-view reference अपने आप बनेगी। Saved main-character references reuse होंगी। Background Knights की पुरानी individual sheets नहीं भेजी जाएँगी; उनकी एक पहले बनी group scene reference होगी। Characters पेज पर पुरानी references हटाने का बटन है।</p>
     <ImageDirectionControls disabled={!!busy}/>
     {styleReferenceCount>0&&<div className="rounded-xl border border-fuchsia-100 bg-fuchsia-50 p-3 text-xs text-fuchsia-800">{project.useStyleReferences===false?"Uploaded style references बंद हैं।":"Uploaded style references चालू हैं।"} {styleReferenceCount} saved. ऊपर दिए switches से references चुनें।</div>}
     {progress&&<div className="rounded-2xl border border-violet-200 bg-violet-50 p-4 text-sm font-medium text-violet-800"><Loader2 className="mr-2 inline animate-spin" size={15}/>{progress}</div>}
