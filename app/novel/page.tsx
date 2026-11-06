@@ -264,7 +264,7 @@ export default function NovelImportPage(){
         const newScenes=analysis.scenes.map((item)=>{
           const states=namedSceneCharacters(item.characters,characters);
           const scene=createImage(nextSceneNumber++,item.sourceText,states);
-          scene.visualDescription=item.visualDescription;scene.visualSafetyPlan=item.visualSafetyPlan;
+          scene.visualDescription=item.visualDescription;scene.directorPrompt=item.imagePrompt||"";scene.visualSafetyPlan=item.visualSafetyPlan;
           scene.chapterNumber=number;
           scene.title=item.title||scene.title;
           scene.locationId=findLocation(locations,item.locationName)||priorLocationId;
