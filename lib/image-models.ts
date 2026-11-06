@@ -3,6 +3,7 @@ import type {Project} from "./types";
 type ModelOption={provider:Project["imageProvider"];model:string;label:string;note:string;maxReferences:number};
 export const IMAGE_MODELS:ModelOption[]=[
   {provider:"sensenova",model:"sensenova-u1.5-lite",label:"SenseNova · U1.5 Lite (Direct API)",note:"Text-to-image और reference-guided editing; anime, illustration, painting और realistic looks को prompt से चुनें।",maxReferences:5},
+  {provider:"sensenova",model:"sensenova-u1-fast",label:"SenseNova · U1 Fast (Direct API)",note:"तेज़ model विकल्प; multi-reference support और scene consistency वास्तविक API से जाँचें। Provider समर्थित न करे तो स्पष्ट error दिखेगा।",maxReferences:5},
   {provider:"gemini",model:"gemini-3.1-flash-lite-image",label:"Google Cloud · Gemini 3.1 Flash-Lite Image",note:"Text और uploaded image references से generation।",maxReferences:8},
   {provider:"gemini",model:"gemini-3.1-flash-image",label:"Google Cloud · Gemini 3.1 Flash Image",note:"Text और uploaded image references से generation।",maxReferences:8},
   {provider:"gemini",model:"gemini-3-pro-image",label:"Google Cloud · Gemini 3 Pro Image",note:"Text और uploaded image references से generation।",maxReferences:8},
