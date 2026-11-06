@@ -2,42 +2,36 @@ import {expect,it} from "vitest";
 import {createImage,createProject} from "./default-project";
 import {characterReferencePlan,isIncidentalCharacter} from "./character-reference-policy";
 import type {Character} from "./types";
-const character:Character={id:"person",name:"Arin Veyr",role:"named-support",appearance:"Adult, dark hair",outfit:"Blue coat"};
-function fixture(count:number,person=character,position="left"){
- const project=createProject();project.characters=[person];project.images=Array.from({length:count},(_,i)=>createImage(i+1,"A conversation",[{characterId:person.id,position,action:"talks",direction:"right",expression:"calm",stateNotes:""}]));return project;
+
+const support:Character={id:"doctor",name:"Dr Rao",role:"named-support",appearance:"Adult, dark hair",outfit:"White coat"};
+function fixture(count:number,person:Character=support,position="left"){
+  const project=createProject();
+  project.characters=[person];
+  project.images=Array.from({length:count},(_,i)=>createImage(i+1,"Medical scene",[{characterId:person.id,position,action:"works",direction:"front",expression:"calm",stateNotes:""}]));
+  return project;
 }
-it("selects named recurring individuals, while one-off and two-scene support use scene anchors",()=>{
- expect(characterReferencePlan(character,fixture(1)).mode).toBe("scene");expect(characterReferencePlan(character,fixture(2)).mode).toBe("scene");expect(characterReferencePlan(character,fixture(3)).mode).toBe("four-view");
+it("never schedules a four-view sheet for supporting characters regardless of appearances",()=>{
+  for(const count of [0,1,2,3,15,100])expect(characterReferencePlan(support,fixture(count)).mode).toBe("scene");
 });
-it("recognizes a repeated principal in two scenes but avoids a one-off principal",()=>{
- const main={...character,role:"मुख्य नायक"};expect(characterReferencePlan(main,fixture(1,main)).mode).toBe("scene");expect(characterReferencePlan(main,fixture(2,main)).mode).toBe("four-view");
+it("never schedules sheets for main characters, even in a long story",()=>{
+  const main={...support,role:"मुख्य नायक"};
+  expect(characterReferencePlan(main,fixture(60,main)).mode).toBe("scene");
 });
-it.each([{...character,role:"background-extra"},{...character,name:"Knight 4"},{...character,name:"Crowd"},{...character,name:"Mysterious Shadow"},{...character,role:"भीड़ का सदस्य"}])("does not create a sheet for recurring background $name / $role",person=>{
- expect(characterReferencePlan(person,fixture(8,person)).mode).toBe("scene");
+it("never schedules sheets for 4 individually named guards or hospital staff",()=>{
+  const names=["Knight 1","Knight 2","Knight 3","Knight 4","Maid","Waiter","Doctor","Patient","Assistant"];
+  for(const name of names)expect(characterReferencePlan({...support,name},fixture(12,{...support,name})).mode).toBe("scene");
 });
-it("does not promote someone merely because they stand in the background of many frames",()=>{
- expect(characterReferencePlan(character,fixture(8,character,"background")).mode).toBe("scene");
+it("retains existing user reference metadata without using it to schedule new sheets",()=>{
+  const old={...support,referenceImage:"old-saved-master",referenceSheet:undefined};
+  const project=fixture(12,old);
+  expect(characterReferencePlan(old,project).mode).toBe("scene");
+  expect(old.referenceImage).toBe("old-saved-master");
 });
-it("ignores even legacy saved Knight 1–4 sheets as scene identity masters",()=>{
- for(const n of [1,2,3,4]){
-   const knight={...character,name:"Knight "+n,referenceImage:"saved-knight-"+n,referenceSheet:undefined};
-   expect(isIncidentalCharacter(knight)).toBe(true);
-   expect(characterReferencePlan(knight,fixture(8,knight)).mode).toBe("scene");
- }
-});
-it("reuses saved portraits irrespective of role or four-view metadata",()=>{
- const saved={...character,referenceImage:"existing portrait"};expect(characterReferencePlan(saved,fixture(8,saved)).mode).toBe("saved");
-});
-it("counts appearances once per scene and protects held scene reviews",()=>{
- const project=fixture(1);project.images[0].characterStates.push(project.images[0].characterStates[0]);expect(characterReferencePlan(character,project).appearances).toBe(1);
- project.images=fixture(3).images;project.images[2].reviewSession={token:"held",requestKey:"key",expiresAt:Date.now()+10000};expect(characterReferencePlan(character,project).mode).toBe("scene");
-});
-it("honors the continuity reference switch",()=>{
- const project=fixture(4);project.useContinuityReferences=false;expect(characterReferencePlan(character,project).mode).toBe("scene");
-});
-it("does not create an unused sheet after all existing scenes are already completed",()=>{
- const project=fixture(4);project.images.forEach((scene,i)=>{scene.image="completed "+i});expect(characterReferencePlan(character,project).mode).toBe("scene");
-});
-it("keeps an unseen narrator or disembodied voice in the scene instead of inventing a four-view body",()=>{
- const voice={...character,name:"Whisper",role:"support",appearance:"A disembodied voice with no visible form"};expect(characterReferencePlan(voice,fixture(5,voice)).mode).toBe("scene");
+it("counts active appearances while background guards remain scene-first",()=>{
+  const knight={...support,name:"Knight 4"};
+  expect(isIncidentalCharacter(knight)).toBe(true);
+  const plan=characterReferencePlan(knight,fixture(10,knight,"background"));
+  expect(plan.appearances).toBe(10);
+  expect(plan.activeAppearances).toBe(0);
+  expect(plan.mode).toBe("scene");
 });

@@ -6,7 +6,6 @@ import {AlertTriangle,ImageIcon,Loader2,Palette,Play,Sparkles} from "lucide-reac
 import {useEffect,useRef,useState} from "react";
 import {useProject} from "@/components/project-provider";
 import {imageRequestKey,reviewOrGenerateRequest} from "@/lib/review-session";
-import {ensureAutomaticCharacterReferences} from "@/lib/character-sheets";
 import {buildSceneImageRequest} from "@/lib/scene-image-request";
 import {ImageFailureDetails} from "@/components/image-failure-details";
 import {imageBatchPendingIds,imageFailureAction,isVisualSafetyBlock} from "@/lib/image-batch";
@@ -58,8 +57,7 @@ export default function ImagesPage(){
   };
 
   const recordFailure=(working:Project,sceneId:string,reason:unknown):Project=>{
-    const failedCharacter=(reason as {characterName?:string})?.characterName;
-    const message=reason instanceof Error?(failedCharacter?failedCharacter+" की character sheet: ":"")+reason.message:"Image generation failed.";
+    const message=reason instanceof Error?reason.message:"Image generation failed.";
     const rawCode=(reason as {code?:unknown}|null)?.code;
     const failureCode=typeof rawCode==="string"?rawCode:undefined;
     const failureDiagnostics=(reason as {diagnostics?:CinematicImage["failureDiagnostics"]})?.diagnostics;
@@ -73,9 +71,8 @@ export default function ImagesPage(){
   const generateOne=async(scene:CinematicImage)=>{
     generationController.current=new AbortController();
     setBusy(scene.id);setError("");setNotice("");
-    let working=project;
+    const working=project;
     try{
-      working=await ensureAutomaticCharacterReferences(working,[scene.id],next=>{working=next;commit(next)},setProgress,generationController.current.signal);
       const done=await generateScene(scene.id,working)();
       commit({...working,images:working.images.map((item)=>item.id===done.id?done:item),updatedAt:new Date().toISOString()});
       setNotice("Scene "+scene.sceneNumber+" image generated with "+selectedModel.label+".");
@@ -103,7 +100,6 @@ export default function ImagesPage(){
           setProgress((working.imageProvider==="sensenova"?"SenseNova":"xKiro")+" · "+(offset+1)+" / "+pendingIds.length+" · क्रम से image बन रही है…");
           for(const id of batch){
             try{
-              working=await ensureAutomaticCharacterReferences(working,[id],next=>{working=next;commit(next)},setProgress,generationController.current.signal);
               const done=await generateScene(id,working)();
               working={...working,images:working.images.map((item)=>item.id===done.id?done:item),updatedAt:new Date().toISOString()};
               commit(working);
@@ -136,16 +132,12 @@ export default function ImagesPage(){
         while(offset<pendingIds.length){
           const batch=pendingIds.slice(offset,offset+concurrency);
           setProgress("Google Cloud Gemini · "+Math.min(offset+batch.length,pendingIds.length)+" / "+pendingIds.length+" · "+batch.length+" images parallel generate हो रही हैं…");
-          const readyIds:string[]=[];
-          for(const id of batch){
-            try{working=await ensureAutomaticCharacterReferences(working,[id],next=>{working=next;commit(next)},setProgress,generationController.current.signal);readyIds.push(id)}
-            catch(reason){working=recordFailure(working,id,reason);commit(working);if(imageFailureAction(working.imageProvider,(reason as {code?:unknown})?.code,(reason as {diagnostics?:CinematicImage["failureDiagnostics"]})?.diagnostics?.reviewFailure?.reason)==="stop-batch")throw reason}
-          }
-          const results=await Promise.allSettled(readyIds.map((id)=>generateScene(id,working)()));
+          // Scene-first: generate immediately; never pre-generate character sheets.
+          const results=await Promise.allSettled(batch.map((id)=>generateScene(id,working)()));
           for(const [index,result] of results.entries()){
             working=result.status==="fulfilled"
               ?{...working,images:working.images.map((item)=>item.id===result.value.id?result.value:item),updatedAt:new Date().toISOString()}
-              :recordFailure(working,readyIds[index],result.reason);
+              :recordFailure(working,batch[index],result.reason);
           }
           commit(working);
           const failed=results.find((result)=>result.status==="rejected"&&imageFailureAction(working.imageProvider,(result.reason as {code?:unknown})?.code,(result.reason as {diagnostics?:CinematicImage["failureDiagnostics"]})?.diagnostics?.reviewFailure?.reason)==="stop-batch");

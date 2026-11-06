@@ -15,12 +15,13 @@ export type CharacterReferencePlan={mode:"saved"|"four-view"|"scene";appearances
 export function characterReferencePlan(character:Character,project:Project):CharacterReferencePlan{
   const appearances=project.images.filter(scene=>scene.characterStates.some(state=>state.characterId===character.id));
   const activeAppearances=appearances.filter(scene=>scene.characterStates.some(state=>state.characterId===character.id&&!/background|पृष्ठभूमि|बैकग्राउंड/i.test(state.position))).length;
-  const result={appearances:appearances.length,activeAppearances};
-  if(project.useContinuityReferences===false)return {...result,mode:"scene",reason:"Character/continuity references बंद हैं"};
-  if(isIncidentalCharacter(character))return {...result,mode:"scene",reason:character.referenceImage?"Background/extra: पुरानी sheet scene request में नहीं भेजी जाएगी; Remove Reference से मिटा सकते हैं":"Background/extra: अलग sheet नहीं; group scene आगे reference बनेगी"};
-  if(character.referenceImage)return {...result,mode:"saved",reason:"Saved reference reuse होगी; दोबारा sheet नहीं बनेगी"};
-  if(appearances.length&&appearances.every(scene=>scene.image))return {...result,mode:"scene",reason:"Scenes तैयार हैं; आगे जरूरत पर पहली scene reuse होगी"};
-  if(appearances.some(scene=>scene.reviewSession))return {...result,mode:"scene",reason:"पहले बनी image की pending review पूरी होगी; अभी references नहीं बदलेंगे"};
-  if(activeAppearances>=2&&(MAIN_ROLE.test(character.role)&&appearances.length>=2||appearances.length>=3))return {...result,mode:"four-view",reason:"बार-बार सक्रिय character: जरूरत वाले scene से पहले automatic 4-view sheet बनेगी"};
-  return {...result,mode:"scene",reason:"कम या background appearances: अलग sheet नहीं; पहली scene reuse होगी"};
+  // Story-first policy: no automatic identity sheets, regardless of repeat count.
+  // Existing user images remain saved in legacy data but are not generated,
+  // regenerated or consumed by the automatic scene-first workflow.
+  return {
+    appearances:appearances.length,activeAppearances,mode:"scene",
+    reason:character.referenceImage
+      ?"पुरानी Reference सुरक्षित है; नई Images के लिए पिछली Generated Scenes इस्तेमाल होंगी"
+      :"Text Identity + पुरानी Generated Scene Images; कोई अलग Character Sheet नहीं"
+  };
 }
