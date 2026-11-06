@@ -20,7 +20,9 @@ describe("scene-only reference selection",()=>{
     const first=createImage(1,"Hero appears",[state("hero")]);first.image="hero-scene";first.visibilityStatus="verified";first.characterVisibility=[{characterId:"hero",clarity:"clear" as const,confidence:.96,faceVisible:true,box:{x:.2,y:.1,width:.3,height:.76}}];
     const second=createImage(2,"Hero returns",[state("hero")]);p.images=[first,second];
     const refs=novelReferences(second,p,first);
-    expect(refs.images).toEqual(["hero-scene"]);
+    expect(refs.images[0]).toBe("hero-scene");
+    expect(refs.crops[0]).toEqual({x:.2,y:.1,width:.3,height:.76});
+    expect(refs.images.every(image=>image==="hero-scene")).toBe(true);
     expect(refs.images).not.toContain("four-view-master");
   });
   it("reuses an earlier chapter scene when a character returns later",()=>{
