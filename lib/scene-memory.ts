@@ -1,4 +1,5 @@
 import type {CinematicImage,Character,Project,SceneCharacterState} from "./types";
+import {usableIdentity} from "./scene-visibility";
 
 /** Derived metadata index. Source of truth is the project's persistent IndexedDB
  * scene records: characterStates contain stable IDs and completed scenes contain pixels.
@@ -9,6 +10,7 @@ export type CharacterSceneSighting={
   characterId:string; characterName:string; locationId?:string;
   position:string; direction:string; expression:string; action:string;
   isBackground:boolean; hasImage:boolean; qualityHint:number;
+  clarity?:string; visionConfidence?:number; imageUsable:boolean;
 };
 
 export type CharacterSceneMemory={
@@ -52,12 +54,16 @@ export function sceneCharacterMemories(project:Pick<Project,"characters"|"images
         characterName:memory.name,locationId:scene.locationId,
         position:state.position,direction:state.direction,expression:state.expression,
         action:state.action,isBackground:BACKGROUND.test(state.position),
-        hasImage:Boolean(scene.image),qualityHint:scene.image?sceneSightingQuality(scene,state):0
+        hasImage:Boolean(scene.image),
+        qualityHint:scene.image?sceneSightingQuality(scene,state):0,
+        clarity:scene.characterVisibility?.find(item=>item.characterId===state.characterId)?.clarity,
+        visionConfidence:scene.characterVisibility?.find(item=>item.characterId===state.characterId)?.confidence,
+        imageUsable:scene.visibilityStatus==="verified"&&usableIdentity(scene.characterVisibility?.find(item=>item.characterId===state.characterId))
       });
     }
   }
   return [...byId.values()].map(memory=>{
-    const rendered=memory.sightings.filter(s=>s.hasImage).sort((a,b)=>b.qualityHint-a.qualityHint||b.sceneNumber-a.sceneNumber);
+    const rendered=memory.sightings.filter(s=>s.hasImage&&s.imageUsable).sort((a,b)=>(b.visionConfidence||0)-(a.visionConfidence||0)||b.qualityHint-a.qualityHint||b.sceneNumber-a.sceneNumber);
     return {...memory,firstSeen:memory.sightings[0],lastSeen:memory.sightings.at(-1),bestImageSceneId:rendered[0]?.sceneId};
   });
 }
@@ -71,11 +77,15 @@ export function sceneIdentityCandidates(character:Character,target:CinematicImag
     .flatMap(scene=>{
       const state=scene.characterStates.find(s=>s.characterId===character.id);
       if(!state)return [];
-      const quality=sceneSightingQuality(scene,state);
+      const visibility=scene.characterVisibility?.find(item=>item.characterId===character.id);
+      const usable=scene.visibilityStatus==="verified"&&usableIdentity(visibility);
+      const quality=usable?Math.round(visibility!.confidence*100):0;
       const sameLocation=Boolean(target.locationId&&scene.locationId===target.locationId);
       const distance=target.sceneNumber-scene.sceneNumber;
-      return [{scene,quality,score:quality+(sameLocation?12:0)+Math.max(0,15-Math.min(distance,15)),sameLocation}];
+      return [{scene,quality,usable,box:usable?visibility!.box:undefined,
+        score:quality+(sameLocation?12:0)+Math.max(0,15-Math.min(distance,15)),sameLocation}];
     });
-  // An image with a recognizable foreground face outweighs a newer crowd shot.
-  return completed.sort((a,b)=>b.score-a.score||b.scene.sceneNumber-a.scene.sceneNumber);
+  // Never let an unverified whole-scene group portrait serve as the identity
+  // of a tiny character in its background. Text memory is the safe fallback.
+  return completed.sort((a,b)=>Number(b.usable)-Number(a.usable)||b.score-a.score||b.scene.sceneNumber-a.scene.sceneNumber);
 }
