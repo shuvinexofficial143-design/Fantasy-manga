@@ -55,8 +55,11 @@ export function buildCinematicPrompt({scene,project,previousScene}:{scene:Cinema
   ].filter(Boolean).join("; ")).join("\n"):"No additional recurring person is required unless the current visual introduces one.";
   // Previous frames supply visual continuity, not their story action or wounds.
   // A quiet next scene must not inherit a violent flashback in its text prompt.
+  const sameLocation=Boolean(previousScene&&scene.locationId&&scene.locationId===previousScene.locationId);
   const previousText=previousScene
-    ?"Use the attached previous frame only for established faces, intact clothing, architecture, palette, lighting, landmarks and screen direction. Depict only the CURRENT STORY MOMENT; carry forward visual design rather than previous story actions."
+    ?sameLocation
+      ?"Use the previous frame for faces, outfits, established architecture, landmarks, palette and screen direction. Depict only the CURRENT STORY MOMENT, not the prior action."
+      :"The location has changed. Use the previous frame for recurring faces, costumes, palette and rendering only. DO NOT transplant its background, doors, windows, landmarks or camera geography into the new location."
     :"This is the first frame; establish the canonical screen geography clearly.";
   const lockedStyle=safeDetail(projectImageStyle(project),"Cohesive full-color fantasy illustration with expressive characters and atmospheric lighting");
   const styleReferenceCount=novelReferences(scene,project,previousScene).styleCount;
