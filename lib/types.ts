@@ -105,6 +105,7 @@ export type CinematicImage={
   title:string;
   sourceText:string;
   visualDescription?:string;
+  directorPrompt?:string;
   visualSafetyPlan?:VisualSafetyPlan;
   safetyReport?:VisualSafetyReport;
   prompt:string;
