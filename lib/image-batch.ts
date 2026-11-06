@@ -21,6 +21,10 @@ export function imageBatchPendingIds(
  * Network, authentication, quota and malformed-request failures are not silently
  * treated as safety blocks: they still stop the batch for troubleshooting.
  */
-export function imageFailureAction(provider:Project["imageProvider"],code:unknown):"skip-scene"|"stop-batch"{
-  return isVisualSafetyBlock(code)||(provider==="sensenova"&&code==="SENSENOVA_SENSITIVE_IMAGE")?"skip-scene":"stop-batch";
+export function imageFailureAction(provider:Project["imageProvider"],code:unknown,reviewFailureReason?:unknown):"skip-scene"|"stop-batch"{
+  if(isVisualSafetyBlock(code)||(provider==="sensenova"&&code==="SENSENOVA_SENSITIVE_IMAGE"))return "skip-scene";
+  // The reviewer did not approve this scene. Keep it failed, continue to a
+  // later scene with a fresh preflight; never send the unchecked image.
+  if(code==="VISUAL_SAFETY_UNAVAILABLE"&&["timeout","conflict","service-unavailable","invalid-response"].includes(String(reviewFailureReason)))return "skip-scene";
+  return "stop-batch";
 }
