@@ -156,6 +156,7 @@ export type Project={
   characters:Character[];
   locations:Location[];
   images:CinematicImage[];
+  archivedChapters?:Array<{id:string;archivedAt:string;chapter:NovelChapter;images:CinematicImage[]}>;
   createdAt:string;
   updatedAt:string;
 };
