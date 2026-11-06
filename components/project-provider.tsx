@@ -112,6 +112,8 @@ export function ProjectProvider({children}:{children:React.ReactNode}){
   const [persistenceError,setPersistenceError]=useState("");
   const saveQueue=useRef<Promise<void>>(Promise.resolve());
   const saveTimer=useRef<ReturnType<typeof setTimeout>|null>(null);
+  const latestState=useRef(state);
+  latestState.current=state;
 
   useEffect(()=>{let mounted=true;void (async()=>{
     try{
@@ -141,6 +143,25 @@ export function ProjectProvider({children}:{children:React.ReactNode}){
     },350);
     return()=>{if(saveTimer.current)clearTimeout(saveTimer.current)};
   },[state,hydrated]);
+
+  // Flush debounced changes when the browser moves this tab into the background.
+  // IndexedDB writes during pagehide are best-effort; downloaded backups remain important.
+  useEffect(()=>{
+    if(!hydrated)return;
+    const flush=()=>{
+      if(saveTimer.current)clearTimeout(saveTimer.current);
+      saveTimer.current=null;
+      saveQueue.current=saveQueue.current.catch(()=>{}).then(()=>saveState(latestState.current));
+      void saveQueue.current.catch(()=>setPersistenceError("Project save नहीं हुआ। Backup डाउनलोड करके रखें।"));
+    };
+    const onVisibility=()=>{if(document.visibilityState==="hidden")flush()};
+    document.addEventListener("visibilitychange",onVisibility);
+    window.addEventListener("pagehide",flush);
+    return()=>{
+      document.removeEventListener("visibilitychange",onVisibility);
+      window.removeEventListener("pagehide",flush);
+    };
+  },[hydrated]);
 
   const project=state.projects.find((item)=>item.id===state.activeProjectId)||state.projects[0]||seedProject;
   const updateProject=(fn:(project:Project)=>Project)=>setState((current)=>({...current,projects:current.projects.map((item)=>item.id===project.id?fn(item):item)}));
