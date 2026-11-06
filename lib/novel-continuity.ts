@@ -34,7 +34,10 @@ export function novelReferences(scene:CinematicImage,project:Project,previous?:C
     }
     if(scene.usePreviousImage){
       if(previous?.image&&previous.sceneNumber<scene.sceneNumber)add(continuity,previous.image,`Previous completed scene ${previous.sceneNumber}`);
-      for(const frame of earlier.slice(-2).reverse())add(continuity,frame.image,`Previous completed scene ${frame.sceneNumber}`);
+      // The newest completed frame already carries motion, costume and group
+      // continuity. A second adjacent frame is usually redundant and pushes
+      // the request over SenseNova's five-reference input limit.
+      for(const frame of earlier.slice(-1))add(continuity,frame.image,`Previous completed scene ${frame.sceneNumber}`);
     }
     // Generic guards and knights share ONE completed ensemble frame, not four
     // old individual sheets. Prefer their latest completed group appearance,
