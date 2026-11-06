@@ -58,13 +58,17 @@ export function novelReferences(scene:CinematicImage,project:Project,previous?:C
       // The latest included scene already shows this character. Do not add
       // another older identity photo just because no four-view master exists.
       const newest=earlier.at(-1);
-      if(newest?.image&&continuity.some(ref=>ref.image===newest.image)&&newest.characterStates.some(entry=>entry.characterId===state.characterId))continue;
+      if(newest?.image&&continuity.some(ref=>ref.image===newest.image&&ref.label.includes("Previous completed scene"))&&newest.characterStates.some(entry=>entry.characterId===state.characterId))continue;
       const anchor=earlier.find((item)=>item.characterStates.some((entry)=>entry.characterId===state.characterId));
       add(continuity,anchor?.image,`Earlier scene ${anchor?.sceneNumber} containing ${character?.name}; face and outfit only`);
     }
     if(location&&!location.referenceImage){
-      const anchor=earlier.find((item)=>item.locationId===scene.locationId);
-      add(continuity,anchor?.image,`Earlier scene ${anchor?.sceneNumber} at ${location.name}; architecture only`);
+      const newest=earlier.at(-1);
+      const newestIsLocationReference=newest?.image&&newest.locationId===scene.locationId&&continuity.some(ref=>ref.image===newest.image&&ref.label.includes("Previous completed scene"));
+      if(!newestIsLocationReference){
+        const anchor=earlier.find((item)=>item.locationId===scene.locationId);
+        add(continuity,anchor?.image,`Earlier scene ${anchor?.sceneNumber} at ${location.name}; architecture only`);
+      }
     }
   }
   // Preserve all existing active identities. The server packs overflow into
