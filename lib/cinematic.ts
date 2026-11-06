@@ -77,6 +77,7 @@ export function buildCinematicPrompt({scene,project,previousScene}:{scene:Cinema
         safeDetail(`${location.name} — ${location.description}; lighting=${location.lighting}; locked facts=${location.continuityNotes||"preserve architecture and landmark placement"}`,"Preserve established architecture, landmarks and atmospheric lighting")
       :"Continue the established location unless the story changes it."}`,
     `CHARACTER BIBLE + CURRENT STATE:\n${characterBible}`,
+    scene.directorPrompt?.trim()?`AI DIRECTOR COMPOSITION: ${safeDetail(scene.directorPrompt.slice(0,1300),"Preserve continuity and the current story beat")}`:"",
     `CAMERA CONTINUITY: shot=${safeDetail(scene.cameraShot,"medium reaction shot")}; angle=${safeDetail(scene.cameraAngle,"eye level")}; screen direction=${safeDetail(scene.cameraDirection,"preserve previous screen direction")}. Preserve left/right geography and eye lines.`,
     `PREVIOUS SCENE STATE:\n${previousText}`,
     !adjusted&&scene.continuityNotes?`CURRENT CONTINUITY NOTES: ${safeDetail(scene.continuityNotes,"preserve identity and setting")}`:"",
