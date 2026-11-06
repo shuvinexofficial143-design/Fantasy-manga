@@ -2,7 +2,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import {useState} from "react";
-import {Loader2,Plus,Download,Sparkles} from "lucide-react";
+import {Loader2,Plus,Download,Sparkles,Trash2} from "lucide-react";
 import {useProject} from "@/components/project-provider";
 import {generateCharacterSheet,isCharacterSheetReady,characterSheetFailure} from "@/lib/character-sheets";
 import {characterReferencePlan} from "@/lib/character-reference-policy";
@@ -19,6 +19,17 @@ export default function CharactersPage(){
   const model=selectedImageModel(project);
   const patch=(id:string,value:Partial<Character>)=>updateProject((p)=>({...p,characters:p.characters.map((character)=>character.id===id?{...character,...(["name","appearance","outfit"].some((key)=>key in value)?{sheetFailure:undefined}:{}),...value}:character),updatedAt:new Date().toISOString()}));
   const save=(done:Character)=>patch(done.id,done);
+  const removeReference=(character:Character)=>{
+    if(!window.confirm(character.name+" की saved reference हटाएँ? Character, story और बनी हुई scene images सुरक्षित रहेंगी। उस character की pending scene reviews reset होंगी।"))return;
+    updateProject((p)=>({
+      ...p,
+      characters:p.characters.map(item=>item.id===character.id?{...item,referenceImage:undefined,referenceSheet:undefined,sheetFailure:undefined}:item),
+      images:p.images.map(scene=>!scene.image&&scene.reviewSession&&scene.characterStates.some(state=>state.characterId===character.id)?{...scene,reviewSession:undefined}:scene),
+      updatedAt:new Date().toISOString()
+    }));
+    setNotice(character.name+" की saved reference हटा दी गई। Character और पहले बनी story images सुरक्षित हैं।");
+    setError("");
+  };
   const saveFailure=(reason:unknown)=>{
     const character=project.characters.find((item)=>item.id===(reason as {characterId?:string})?.characterId);
     if(character)patch(character.id,{sheetFailure:characterSheetFailure(character,reason)});
@@ -56,7 +67,7 @@ export default function CharactersPage(){
       <div className="space-y-3 p-4"><div aria-label={"Reference plan for "+character.name} className="rounded-xl bg-violet-50 p-3 text-xs leading-5 text-violet-900"><b>{plans.get(character.id)?.appearances||0} planned scenes</b> · {plans.get(character.id)?.reason}</div><label className="block text-xs font-bold text-slate-500">Name<input aria-label={"Character name "+character.id} disabled={!!busy} value={character.name} onChange={(e)=>patch(character.id,{name:e.target.value})} className="mt-1 w-full rounded-xl border border-slate-200 p-3 text-sm font-bold text-slate-900"/></label><label className="block text-xs font-bold text-slate-500">Appearance / उम्र / चेहरा<textarea disabled={!!busy} value={character.appearance} onChange={(e)=>patch(character.id,{appearance:e.target.value})} className="mt-1 min-h-20 w-full rounded-xl border border-slate-200 p-3 text-sm font-normal text-slate-900"/></label><label className="block text-xs font-bold text-slate-500">Outfit / रंग / accessories<input disabled={!!busy} value={character.outfit} onChange={(e)=>patch(character.id,{outfit:e.target.value})} className="mt-1 w-full rounded-xl border border-slate-200 p-3 text-sm font-normal text-slate-900"/></label>
       {character.sheetFailure&&!error&&<ImageFailureDetails error={character.sheetFailure.error} code={character.sheetFailure.code} diagnostics={character.sheetFailure.diagnostics} project={project} characterId={character.id} reviewAvailable={!!character.sheetFailure.reviewSession} disabled={!!busy}/>}
       <div className="text-xs text-slate-500">{isCharacterSheetReady(character)?"✓ चारों full-body views verified · Scene identity reference ready":character.referenceImage?"Saved reference मौजूद है और scenes में reuse होगी। Regenerate केवल जरूरत पर करें।":"Reference का तरीका ऊपर automatic plan में दिखाया गया है।"}</div>
-      <div className="flex flex-wrap gap-2"><button aria-label={"Generate sheet for "+character.name} disabled={!!busy||!model.maxReferences||!character.name.trim()} onClick={()=>void generate(character)} className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-4 py-2.5 text-xs font-bold text-white disabled:opacity-50">{busy===character.id?<Loader2 size={14} className="animate-spin"/>:<Sparkles size={14}/>} {character.sheetFailure?.reviewSession?"Retry Review · Image ready":character.referenceSheet?"Regenerate 4-View Sheet":"Generate 4-View Sheet"}</button>{character.referenceImage&&<a href={character.referenceImage} download={character.name.replace(/[^\p{L}\p{N}_-]/gu,"-")+"-4-view-sheet"+(character.referenceImage.startsWith("data:image/webp")?".webp":character.referenceImage.startsWith("data:image/jpeg")?".jpg":".png")} className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-xs font-bold"><Download size={14}/> Download</a>}</div></div>
+      <div className="flex flex-wrap gap-2"><button aria-label={"Generate sheet for "+character.name} disabled={!!busy||!model.maxReferences||!character.name.trim()} onClick={()=>void generate(character)} className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-4 py-2.5 text-xs font-bold text-white disabled:opacity-50">{busy===character.id?<Loader2 size={14} className="animate-spin"/>:<Sparkles size={14}/>} {character.sheetFailure?.reviewSession?"Retry Review · Image ready":character.referenceSheet?"Regenerate 4-View Sheet":"Generate 4-View Sheet"}</button>{character.referenceImage&&<><a href={character.referenceImage} download={character.name.replace(/[^\p{L}\p{N}_-]/gu,"-")+"-4-view-sheet"+(character.referenceImage.startsWith("data:image/webp")?".webp":character.referenceImage.startsWith("data:image/jpeg")?".jpg":".png")} className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-xs font-bold"><Download size={14}/> Download</a><button aria-label={"Remove reference for "+character.name} disabled={!!busy} onClick={()=>removeReference(character)} className="inline-flex items-center gap-2 rounded-xl border border-red-200 px-3 py-2 text-xs font-bold text-red-700 disabled:opacity-50"><Trash2 size={14}/> Remove Reference</button></>}</div></div>
     </article>)}</div>
     {!project.characters.length&&<section className="rounded-2xl border border-dashed border-slate-300 bg-white p-8 text-center text-sm text-slate-500">Story analyze करें या Add Character दबाएँ। References का तरीका appearances और role से अपने आप तय होगा।</section>}
   </div>;
