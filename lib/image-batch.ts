@@ -26,5 +26,6 @@ export function imageFailureAction(provider:Project["imageProvider"],code:unknow
   // The reviewer did not approve this scene. Keep it failed, continue to a
   // later scene with a fresh preflight; never send the unchecked image.
   if(code==="VISUAL_SAFETY_UNAVAILABLE"&&["timeout","conflict","service-unavailable","invalid-response"].includes(String(reviewFailureReason)))return "skip-scene";
+  if(code==="IMAGE_REQUEST_ABORTED")return "skip-scene";
   return "stop-batch";
 }

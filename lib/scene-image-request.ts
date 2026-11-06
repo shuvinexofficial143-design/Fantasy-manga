@@ -8,7 +8,7 @@ export function buildSceneImageRequest(sceneId:string,project:Project){
   if(!scene)throw new Error("Scene not found.");
   const previous=ordered.slice(0,index).reverse().find((item)=>Boolean(item.image));
   const full=buildCinematicPrompt({scene,project,previousScene:previous});
-  const prefixes=["Generate exactly ONE","MASTER ART-DIRECTION LOCK","CURRENT STORY MOMENT","AI DIRECTOR COMPOSITION","CURRENT LOCATION","WORLD DETAIL & DEPTH","SAME-LOCATION WORLD ANCHOR","LOCATION FIRST APPEARANCE","CHARACTER STAGING & VIEW ANGLES","CHARACTER BIBLE","CAMERA CONTINUITY","CURRENT CONTINUITY NOTES","COMPOSITION","ABSOLUTE LAYOUT RULE"];
+  const prefixes=["Generate exactly ONE","MASTER ART-DIRECTION LOCK","CURRENT STORY MOMENT","REFERENCE IS DESIGN","BACKGROUND CHARACTER MOTION RULE","AI DIRECTOR COMPOSITION","CURRENT LOCATION","WORLD DETAIL & DEPTH","SAME-LOCATION WORLD ANCHOR","LOCATION FIRST APPEARANCE","CHARACTER STAGING & VIEW ANGLES","CHARACTER BIBLE","CAMERA CONTINUITY","CURRENT CONTINUITY NOTES","COMPOSITION","ABSOLUTE LAYOUT RULE"];
   const compact=prefixes.flatMap((prefix)=>full.split(/\n\n+/).filter((section)=>section.startsWith(prefix))).join("\n\n");
   const prompt=project.imageProvider==="xkiro"?(compact||full).slice(0,5200):full;
   const refs=novelReferences(scene,project,previous);
