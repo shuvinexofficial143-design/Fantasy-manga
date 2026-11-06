@@ -95,7 +95,7 @@ export default function SettingsPage(){
           }}>Restore</button>
         </div>)}
       </div>
-    </details>
+    </details>}
     <p className="text-xs text-slate-500">Generation Chrome Tab खुला होने पर ही चलेगी। API keys केवल Deployment Environment में रहेंगी, Backup में नहीं।</p>
   </main>;
 }
