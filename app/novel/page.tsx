@@ -235,8 +235,8 @@ export default function NovelImportPage(){
       setProgress("Chapter "+number+": "+remainingIndexes.length+" logical parts parallel analyze हो रहे हैं…");
       const analyses=await Promise.all(remainingIndexes.map(async(partIndex)=>{
         const neighborContext=[
-          partIndex>0?"PREVIOUS PART END CONTEXT:\n"+parts[partIndex-1].split(/\\s+/).slice(-90).join(" "):"",
-          partIndex+1<parts.length?"NEXT PART START CONTEXT:\n"+parts[partIndex+1].split(/\\s+/).slice(0,90).join(" "):""
+          partIndex>0?"PREVIOUS PART END CONTEXT:\n"+parts[partIndex-1].split(/\s+/).slice(-90).join(" "):"",
+          partIndex+1<parts.length?"NEXT PART START CONTEXT:\n"+parts[partIndex+1].split(/\s+/).slice(0,90).join(" "):""
         ].filter(Boolean).join("\n\n");
         const analysis=await postJsonWithRetry<AnalyzePayload>("/api/novel/analyze",{
           mode:"chunk",
