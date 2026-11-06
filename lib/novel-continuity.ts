@@ -1,7 +1,6 @@
 import type {Character,CinematicImage,Location,Project,SceneCharacterState,ImageBoundingBox} from "./types";
 import {isIncidentalCharacter} from "./character-reference-policy";
 import {sceneIdentityCandidates} from "./scene-memory";
-import {usableIdentity} from "./scene-visibility";
 
 export function canonicalName(name:string){return name.trim().toLocaleLowerCase().replace(/[^\p{L}\p{N}]+/gu," ").trim()}
 
@@ -46,23 +45,19 @@ export function novelReferences(scene:CinematicImage,project:Project,previous?:C
         "Verified crop: background character "+character.name+" from scene "+candidate.scene.sceneNumber+"; use face and clothing DESIGN ONLY; redraw new expression and body pose; never substitute the foreground hero",
         candidate.box);
     }else if(extras.length>1){
-      const group=earlier.find(frame=>{
-        const seen=extras.filter(char=>usableIdentity(frame.characterVisibility?.find(v=>v.characterId===char.id)));
-        if(seen.length<2||frame.visibilityStatus!=="verified")return false;
-        // A group anchor containing an unrelated foreground person is too
-        // ambiguous; choose text memory rather than copying the wrong face.
-        const others=frame.characterStates.filter(state=>!extras.some(c=>c.id===state.characterId));
-        return !others.some(state=>usableIdentity(frame.characterVisibility?.find(v=>v.characterId===state.characterId)));
-      });
-      if(group){
-        const boxes=extras.map(char=>group.characterVisibility?.find(v=>v.characterId===char.id)?.box)
-          .filter((box):box is ImageBoundingBox=>Boolean(box));
-        if(boxes.length>=2){
-          const left=Math.min(...boxes.map(box=>box.x)),top=Math.min(...boxes.map(box=>box.y));
-          const right=Math.max(...boxes.map(box=>box.x+box.width)),bottom=Math.max(...boxes.map(box=>box.y+box.height));
-          add(group.image,"Verified group DESIGN: armor and facial identity only; redraw every knight individually with new pose and staging; no copy-paste",
-            {x:left,y:top,width:right-left,height:bottom-top});
-        }
+      // NEVER send a group-body crop: it repeats the older knights' positions,
+      // gestures and facial expressions. Reuse ONLY independent verified face
+      // designs, at most two; other extras are regenerated from character text.
+      let faceCount=0;
+      for(const character of extras){
+        if(faceCount>=2)break;
+        const candidate=sceneIdentityCandidates(character,scene,project).find(item=>item.usable);
+        if(!candidate?.box)continue;
+        add(candidate.scene.image,
+          "Verified background face DESIGN: "+character.name+
+          "; copy facial structure / costume style ONLY; redraw completely new full body, position, action and expression",
+          candidate.box);
+        faceCount++;
       }
     }
     // The newest successful image of the *same location* is the architecture
