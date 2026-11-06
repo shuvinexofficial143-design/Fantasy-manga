@@ -8,6 +8,7 @@ import {findLocation,findNamed,namedSceneCharacters} from "@/lib/novel-continuit
 import type {Character,ChapterAnalysisProgress,Location,NovelChapter,Project,StudioState} from "@/lib/types";
 
 import {chapterRevision,isChapterJobCurrent} from "@/lib/chapter-deletion";
+import {archiveChapterVersion} from "@/lib/chapter-versions";
 
 const MAX_CHAPTER_JOBS=3;
 const uid=()=>typeof crypto!=="undefined"&&"randomUUID" in crypto?crypto.randomUUID():String(Date.now())+"-"+Math.random().toString(36).slice(2);
@@ -110,7 +111,7 @@ export function BackgroundChapterPipeline({state,setState}:{state:StudioState;se
      let priorLocationId=scenes.at(-1)?.locationId;
      const made=analysis.scenes.map((item)=>{
       const scene=createImage(chapterNumber*1000+localScene++,item.sourceText,namedSceneCharacters(item.characters,characters));
-      scene.visualDescription=item.visualDescription;scene.visualSafetyPlan=item.visualSafetyPlan;
+      scene.visualDescription=item.visualDescription;scene.directorPrompt=item.imagePrompt||"";scene.visualSafetyPlan=item.visualSafetyPlan;
       scene.chapterNumber=chapterNumber;scene.title=item.title||scene.title;scene.locationId=findLocation(locations,item.locationName)||priorLocationId;priorLocationId=scene.locationId;
       scene.cameraShot=item.cameraShot||scene.cameraShot;scene.cameraAngle=item.cameraAngle||scene.cameraAngle;scene.cameraDirection=item.cameraDirection||scene.cameraDirection;scene.continuityNotes=item.continuityNotes||"Continue chapter state from the previous visual.";scene.prompt="";
       return scene;
@@ -121,7 +122,8 @@ export function BackgroundChapterPipeline({state,setState}:{state:StudioState;se
     setState((current)=>({...current,projects:current.projects.map((p)=>{
      if(p.id!==projectId||!p.novelImport||!isChapterJobCurrent(p,chapterNumber,revision))return p;
      const oldIds=new Set(p.novelImport.chapters.find((c)=>c.number===chapterNumber)?.sceneIds||[]);
-     return {...p,characters:mergeCharacters(p.characters,analyses.flatMap((a)=>a.characters||[])),locations:mergeLocations(p.locations,analyses.flatMap((a)=>a.locations||[])),images:[...p.images.filter((img)=>!oldIds.has(img.id)),...scenes],novelImport:{...p.novelImport,chapters:p.novelImport.chapters.map((c)=>c.number===chapterNumber?{...c,summary:partSummaries.join(" "),explainer:partExplainers.join("\n\n"),sceneIds:scenes.map((s)=>s.id),analysisProgress:progress,pipeline:{stage:"polishing",progress:70,message:"Final explainer polish हो रहा है…",updatedAt:new Date().toISOString()}}:c)},updatedAt:new Date().toISOString()};
+     const versioned=archiveChapterVersion(p,chapterNumber);
+     return {...versioned,characters:mergeCharacters(p.characters,analyses.flatMap((a)=>a.characters||[])),locations:mergeLocations(p.locations,analyses.flatMap((a)=>a.locations||[])),images:[...p.images.filter((img)=>!oldIds.has(img.id)),...scenes],novelImport:{...p.novelImport,chapters:p.novelImport.chapters.map((c)=>c.number===chapterNumber?{...c,summary:partSummaries.join(" "),explainer:partExplainers.join("\n\n"),sceneIds:scenes.map((s)=>s.id),analysisProgress:progress,pipeline:{stage:"polishing",progress:70,message:"Final explainer polish हो रहा है…",updatedAt:new Date().toISOString()}}:c)},updatedAt:new Date().toISOString()};
     })}));
 
     const polished=await post<{explainer?:string;summary?:string}>("/api/novel/polish",{chapterNumber,draftExplainers:partExplainers,partSummaries,previousSummary,analysisProvider:project.analysisProvider,analysisModel:project.analysisModel}).catch((): {explainer?:string;summary?:string}=>({}));
