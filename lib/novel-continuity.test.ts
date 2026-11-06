@@ -127,7 +127,7 @@ it("returns to last successful same-location view after intervening scenes elsew
  const d=createImage(4,"Hall return");d.locationId="hall";
  p.images=[a,b,c,d];
  expect(novelReferences(d,p,c).images).toEqual(["hall-new"]);
- expect(novelReferences(d,p,c).labels[0]).toContain("WORLD GEOMETRY ANCHOR");
+ expect(novelReferences(d,p,c).labels[0]).toContain("EMPTY WORLD REFERENCE");
 });
 it("uses only verified bounding boxes as crop hints",()=>{
  const p=createProject();p.imageProvider="sensenova";
@@ -138,4 +138,24 @@ it("uses only verified bounding boxes as crop hints",()=>{
  const refs=novelReferences(second,p);
  expect(refs.images).toEqual(["guest-image"]);
  expect(refs.crops[0]).toEqual({x:.16,y:.12,width:.25,height:.67});
+});
+
+it("does not feed a previous complete frame containing characters as architecture reference",()=>{
+ const p=createProject();p.imageProvider="sensenova";
+ p.locations=[{id:"hospital",name:"Hospital",description:"Glass doors, wall monitor",lighting:"Night"}];
+ p.characters=[{id:"doctor",name:"Doctor",role:"support",appearance:"Black hair",outfit:"White coat"}];
+ const old=createImage(1,"Doctor in hospital",[state("doctor")]);old.image="doctor-with-hospital";old.locationId="hospital";
+ const next=createImage(2,"Nurse turns in hospital");next.locationId="hospital";next.usePreviousImage=true;
+ p.images=[old,next];
+ expect(novelReferences(next,p).images).toEqual([]);
+});
+it("prefers a previous empty hospital background over a frame containing old actions",()=>{
+ const p=createProject();p.imageProvider="sensenova";
+ p.locations=[{id:"hospital",name:"Hospital",description:"Glass doors",lighting:"Night"}];
+ p.characters=[{id:"doctor",name:"Doctor",role:"support",appearance:"Black hair",outfit:"White coat"}];
+ const empty=createImage(1,"Empty corridor");empty.image="empty";empty.locationId="hospital";
+ const crowded=createImage(2,"Doctors",[state("doctor")]);crowded.image="crowded";crowded.locationId="hospital";
+ const next=createImage(3,"Next scene");next.locationId="hospital";
+ p.images=[empty,crowded,next];
+ expect(novelReferences(next,p).images).toEqual(["empty"]);
 });
