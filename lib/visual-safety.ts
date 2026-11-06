@@ -27,7 +27,7 @@ async function review(instruction:string,images:string[]=[],blockedCode="VISUAL_
     return await recoverVisualReview(async(timeoutMs)=>{
     const raw=provider==="xkiro"
       ?await generateXkiroVisualReview(POLICY+"\n\nReturn exactly one compact JSON object for this task; no Markdown, commentary, copied input or reasoning.\n\n"+instruction,model,prepared,timeoutMs)
-      :await generateVertexText(POLICY+"\n\nReturn exactly one compact JSON object for this task; no Markdown, commentary, copied input or reasoning.\n\n"+instruction,{model,temperature:0,maxOutputTokens:8192,...(model==="gemini-3.1-flash-lite"?{thinkingLevel:"minimal" as const}:{}),timeoutMs,images:prepared});
+      :await generateVertexText(POLICY+"\n\nReturn exactly one compact JSON object for this task; no Markdown, commentary, copied input or reasoning.\n\n"+instruction,{model,temperature:0,maxOutputTokens:3200,...(model==="gemini-3.1-flash-lite"?{thinkingLevel:"minimal" as const}:{}),timeoutMs,images:prepared});
     return parseReviewJson(raw,reviewSchema(instruction));
     });
   }catch(error){
