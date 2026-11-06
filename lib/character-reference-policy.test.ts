@@ -1,6 +1,6 @@
 import {expect,it} from "vitest";
 import {createImage,createProject} from "./default-project";
-import {characterReferencePlan} from "./character-reference-policy";
+import {characterReferencePlan,isIncidentalCharacter} from "./character-reference-policy";
 import type {Character} from "./types";
 const character:Character={id:"person",name:"Arin Veyr",role:"named-support",appearance:"Adult, dark hair",outfit:"Blue coat"};
 function fixture(count:number,person=character,position="left"){
@@ -17,6 +17,13 @@ it.each([{...character,role:"background-extra"},{...character,name:"Knight 4"},{
 });
 it("does not promote someone merely because they stand in the background of many frames",()=>{
  expect(characterReferencePlan(character,fixture(8,character,"background")).mode).toBe("scene");
+});
+it("ignores even legacy saved Knight 1–4 sheets as scene identity masters",()=>{
+ for(const n of [1,2,3,4]){
+   const knight={...character,name:"Knight "+n,referenceImage:"saved-knight-"+n,referenceSheet:undefined};
+   expect(isIncidentalCharacter(knight)).toBe(true);
+   expect(characterReferencePlan(knight,fixture(8,knight)).mode).toBe("scene");
+ }
 });
 it("reuses saved portraits irrespective of role or four-view metadata",()=>{
  const saved={...character,referenceImage:"existing portrait"};expect(characterReferencePlan(saved,fixture(8,saved)).mode).toBe("saved");
