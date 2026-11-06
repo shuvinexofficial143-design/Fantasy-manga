@@ -5,7 +5,7 @@ it("recovers a transient timeout using the same operation once",async()=>{
   vi.useFakeTimers();
   const task=vi.fn().mockRejectedValueOnce(new DOMException("timeout","TimeoutError")).mockResolvedValueOnce("checked");
   const result=recoverVisualReview(task);await vi.runAllTimersAsync();
-  expect(await result).toBe("checked");expect(task).toHaveBeenCalledTimes(2);expect(task.mock.calls[0][0]).toBe(35000);
+  expect(await result).toBe("checked");expect(task).toHaveBeenCalledTimes(2);expect(task.mock.calls[0][0]).toBe(50000);
 });
 it("never retries a content refusal, authentication or configuration failure",async()=>{
   for(const error of [Object.assign(new Error("refused"),{code:"REVIEW_CONTENT_BLOCKED"}),reviewHttpError(401),reviewHttpError(400)]){
