@@ -25,7 +25,6 @@ export function novelReferences(scene:CinematicImage,project:Project,previous?:C
   const earlier=project.images.filter(item=>item.sceneNumber<scene.sceneNumber&&Boolean(item.image))
     .sort((a,b)=>b.sceneNumber-a.sceneNumber);
   const location=project.locations.find(item=>item.id===scene.locationId);
-  const sameLocation=scene.locationId?earlier.find(frame=>frame.locationId===scene.locationId):undefined;
   if(project.useContinuityReferences!==false){
     const ids=new Set(scene.characterStates.map(state=>state.characterId));
     const characters=project.characters.filter(char=>ids.has(char.id));
@@ -44,7 +43,7 @@ export function novelReferences(scene:CinematicImage,project:Project,previous?:C
       const character=extras[0];
       const candidate=sceneIdentityCandidates(character,scene,project).find(item=>item.usable);
       if(candidate?.box)add(candidate.scene.image,
-        "Verified crop: background character "+character.name+" from scene "+candidate.scene.sceneNumber+"; do not substitute the foreground hero",
+        "Verified crop: background character "+character.name+" from scene "+candidate.scene.sceneNumber+"; use face and clothing DESIGN ONLY; redraw new expression and body pose; never substitute the foreground hero",
         candidate.box);
     }else if(extras.length>1){
       const group=earlier.find(frame=>{
@@ -61,20 +60,28 @@ export function novelReferences(scene:CinematicImage,project:Project,previous?:C
         if(boxes.length>=2){
           const left=Math.min(...boxes.map(box=>box.x)),top=Math.min(...boxes.map(box=>box.y));
           const right=Math.max(...boxes.map(box=>box.x+box.width)),bottom=Math.max(...boxes.map(box=>box.y+box.height));
-          add(group.image,"Verified group crop: recurring guards/knights only; preserve armor and group design",
+          add(group.image,"Verified group DESIGN: armor and facial identity only; redraw every knight individually with new pose and staging; no copy-paste",
             {x:left,y:top,width:right-left,height:bottom-top});
         }
       }
     }
     // The newest successful image of the *same location* is the architecture
     // anchor even if several unrelated locations appeared in between.
-    if(sameLocation?.image)add(sameLocation.image,
-      "WORLD GEOMETRY ANCHOR — latest completed scene "+sameLocation.sceneNumber+" at "+(location?.name||"this location")+
-      "; use ONLY architecture, door/window placement, objects, lighting direction and depth, NOT old people or actions");
-    else if(location?.referenceImage)add(location.referenceImage,"Location layout master: "+location.name+"; architecture only");
+    // A whole frame containing people encourages editing/copying old poses.
+    // Only an EMPTY environment image can be used directly as a world anchor.
+    // Otherwise use the canonical location text + continuity notes in prompt.
+    const emptyWorld=scene.locationId
+      ?earlier.find(frame=>frame.locationId===scene.locationId&&frame.characterStates.length===0)
+      :undefined;
+    if(emptyWorld?.image)add(emptyWorld.image,
+      "EMPTY WORLD REFERENCE — scene "+emptyWorld.sceneNumber+" at "+(location?.name||"the location")+
+      "; architecture, doors, furniture, fixed geometry and lighting only; generate fresh figures");
+    else if(location?.referenceImage)add(location.referenceImage,
+      "Location master at "+location.name+" — preserve empty architecture only; generate all people fresh");
     else if(scene.usePreviousImage&&!scene.locationId){
       const prior=previous?.image&&previous.sceneNumber<scene.sceneNumber?previous:earlier[0];
-      if(prior?.image)add(prior.image,"Previous completed scene "+prior.sceneNumber+"; use world geometry only, not unverified people");
+      if(prior?.image&&prior.characterStates.length===0)add(prior.image,
+        "Previous empty environment frame "+prior.sceneNumber+" — world layout only; generate fresh characters");
     }
   }
   // One style reference is optional. It never displaces a clear face or a
