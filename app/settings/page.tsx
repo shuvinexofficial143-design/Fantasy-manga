@@ -64,7 +64,7 @@ export default function SettingsPage(){
             }}>Restore</button>
           </div>)}
         </div>
-      </details>
+      </details>}
     </Card>
   </>;
 }
