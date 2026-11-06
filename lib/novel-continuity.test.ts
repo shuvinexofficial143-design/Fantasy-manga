@@ -52,8 +52,10 @@ describe("scene-only reference selection",()=>{
     const next=createImage(2,"Guard group returns",group.characterStates);next.usePreviousImage=false;next.chapterNumber=6;
     p.images=[group,next];
     const refs=novelReferences(next,p);
-    expect(refs.images).toEqual(["group-photo"]);
-    expect(refs.labels[0]).toContain("Verified group crop");
+    expect(refs.images).toEqual(["group-photo","group-photo"]);
+    expect(refs.labels.every(label=>label.includes("face DESIGN"))).toBe(true);
+    expect(refs.crops).toHaveLength(2);
+    expect(refs.crops[0]).not.toEqual(refs.crops[1]);
     expect(refs.images.some(v=>v.startsWith("old-master"))).toBe(false);
   });
   it("never uses future-scene images even if a later scene was already rendered",()=>{
