@@ -30,18 +30,23 @@ try{
  assert.equal(await page.$$eval('input[type=checkbox]',nodes=>nodes.filter(n=>n.checked).length),0,'no manual selection needed');
  assert.equal(await page.$eval('[aria-label="Generate needed character sheets"]',b=>b.disabled),true);
  assert.equal(requests.length,0,'opening Characters never generates sheets');
+ page.on('dialog',dialog=>dialog.accept());
+ await page.click('[aria-label="Remove reference for Knight 4"]');
+ await page.waitForFunction(()=>!document.querySelector('[aria-label="Remove reference for Knight 4"]'));
+ assert.equal(requests.length,0,'removing a legacy knight master must never call generation');
  await page.goto(origin+'/images',{waitUntil:'networkidle0'});await page.evaluate(()=>[...document.querySelectorAll('button')].find(b=>b.textContent.includes('Generate Remaining')).click());
  await page.waitForFunction(()=>document.body.innerText.includes('4 / 4 images ready'));
  assert.equal(requests.length,4);assert.ok(requests.every(r=>r.purpose!=='character-sheet'));
- for(const request of requests)for(const character of characters.slice(0,6))assert.ok(request.referenceImages.includes(character.referenceImage),'every saved master retained, including Knight 4');
- assert.equal(requests[0].referenceImages.length,7,'six saved masters plus uploaded style');
- assert.ok(requests[1].referenceImages.includes(responses[0]));assert.ok(requests[1].referenceLabels.some(label=>label.includes('containing Recurring Guest')),'first story image becomes identity anchor');
+ for(const request of requests)for(const character of characters.slice(0,6))assert.ok(!request.referenceImages.includes(character.referenceImage),'background Knight masters must be excluded, even if stored');
+ assert.equal(requests[0].referenceImages.length,1,'only the uploaded style is needed for the first group scene');
+ assert.ok(requests[1].referenceImages.includes(responses[0]));assert.ok(requests[1].referenceLabels.some(label=>label.includes('background knight/guard group')),'previous group scene becomes a collective knight anchor');
  assert.ok(!requests[1].referenceLabels.some(label=>label.includes('Passing Messenger')),'one-off has no dedicated reference');
+ assert.ok(!requests.some(request=>request.referenceLabels.some(label=>label.includes('Character master: Knight'))),'no Knight identity master is requested');
  await page.waitForFunction(()=>new Promise(resolve=>{const r=indexedDB.open('fantasy-cinematic-studio',1);r.onsuccess=()=>{const db=r.result,q=db.transaction('projects','readonly').objectStore('projects').get('current');q.onsuccess=()=>{db.close();resolve(q.result?.projects[0].images.filter(s=>s.image).length===4)}}}));
  await page.reload({waitUntil:'networkidle0'});
  const saved=await page.evaluate(()=>new Promise(resolve=>{const r=indexedDB.open('fantasy-cinematic-studio',1);r.onsuccess=()=>{const db=r.result,q=db.transaction('projects','readonly').objectStore('projects').get('current');q.onsuccess=()=>{db.close();resolve(q.result.projects[0])}}}));
- assert.equal(saved.characters.length,characters.length);for(const original of characters){const actual=saved.characters.find(c=>c.id===original.id);for(const key of Object.keys(original))assert.equal(actual[key],original[key]);if(!original.referenceImage)assert.ok(!actual.referenceImage)}assert.equal(saved.images.filter(s=>s.image).length,4);assert.deepEqual(saved.styleReferences,project.styleReferences);
+ assert.equal(saved.characters.length,characters.length);for(const original of characters){const actual=saved.characters.find(c=>c.id===original.id);for(const key of Object.keys(original))assert.equal(actual[key],original.id==='known-3'&&key==='referenceImage'?undefined:original[key]);if(!original.referenceImage)assert.ok(!actual.referenceImage)}assert.equal(saved.images.filter(s=>s.image).length,4);assert.deepEqual(saved.styleReferences,project.styleReferences);
  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);assert.deepEqual(errors,[]);
  if(process.env.REFERENCE_ECONOMY_SCREENSHOT)await page.screenshot({path:process.env.REFERENCE_ECONOMY_SCREENSHOT,fullPage:true});
- console.log('PASS: eight-character cast, six legacy masters plus style retained, zero auto sheets, automatic background selection, recurring first-scene anchor, one-off without sheet, four story generations and reload persistence. Mocked provider calls.');
+ console.log('PASS: legacy Knight masters excluded from generation, user may remove Knight 4 reference, previous group scene reused, no auto Knight sheets, four scenes generated and other saved data retained. Mocked provider calls.');
 }finally{await browser.close();server.kill()}

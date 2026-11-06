@@ -37,6 +37,6 @@ export function ImageFailureDetails({error,code,diagnostics,project,sceneId,char
     {(sceneId||failedCharacterId)&&<button disabled={disabled||checking} onClick={()=>void check()} className="mt-3 rounded-lg border border-current px-3 py-2 font-bold disabled:opacity-50">{checking?"Prompt/References की जाँच…":"Prompt/References जाँचें"}</button>}
     <p className="mt-1">इस जाँच से image generation नहीं होगी और references अपने आप नहीं बदलेंगे।</p>
     {result&&<div role="status" className="mt-3 rounded-lg bg-white/70 p-3"><b>Application check:</b> {result.error||result.reason}{result.error&&result.reason&&<p className="mt-2">{result.reason}</p>}<p className="mt-2">यह SenseNova की policy category नहीं है और provider acceptance की guarantee नहीं है। जाँच और सुधार के बाद Retry Image इस्तेमाल करें।</p>{result.reviewedPrompt&&<details className="mt-2"><summary className="cursor-pointer font-bold">Reviewed visual prompt{result.decision==="rewrite"?" · सुरक्षित depiction का सुझाव":""}</summary><pre className="mt-2 max-h-80 overflow-auto whitespace-pre-wrap break-words font-sans">{result.reviewedPrompt}</pre></details>}</div>}
-    <Link href="/references" className="mt-3 inline-block font-bold underline">Review References</Link>
+    <div className="mt-3 flex flex-wrap gap-4"><Link href="/references" className="inline-block font-bold underline">Review Style References</Link><Link href="/characters" className="inline-block font-bold underline">Remove Character Reference</Link></div>
   </div>;
 }

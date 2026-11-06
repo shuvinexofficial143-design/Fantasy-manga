@@ -1,4 +1,5 @@
 import type {Character,CinematicImage,Location,Project,SceneCharacterState} from "./types";
+import {isIncidentalCharacter} from "./character-reference-policy";
 
 export function canonicalName(name:string){return name.trim().toLocaleLowerCase().replace(/[^\p{L}\p{N}]+/gu," ").trim()}
 
@@ -29,23 +30,45 @@ export function novelReferences(scene:CinematicImage,project:Project,previous?:C
     const earlier=project.images.filter((item)=>item.sceneNumber<scene.sceneNumber&&item.image).sort((a,b)=>a.sceneNumber-b.sceneNumber);
     for(const state of scene.characterStates){
       const character=project.characters.find((item)=>item.id===state.characterId);
-      add(continuity,character?.referenceImage,`Character master: ${character?.name}${character?.referenceSheet?" — four-view turnaround of ONE person; choose one natural scene pose and do not duplicate the person four times":""}`);
+      if(character&&!isIncidentalCharacter(character))add(continuity,character.referenceImage,`Character master: ${character.name}${character.referenceSheet?" — four-view turnaround of ONE person; choose one natural scene pose and do not duplicate the person four times":""}`);
     }
     if(scene.usePreviousImage){
       if(previous?.image&&previous.sceneNumber<scene.sceneNumber)add(continuity,previous.image,`Previous completed scene ${previous.sceneNumber}`);
-      for(const frame of earlier.slice(-2).reverse())add(continuity,frame.image,`Previous completed scene ${frame.sceneNumber}`);
+      // The newest completed frame already carries motion, costume and group
+      // continuity. A second adjacent frame is usually redundant and pushes
+      // the request over SenseNova's five-reference input limit.
+      for(const frame of earlier.slice(-1))add(continuity,frame.image,`Previous completed scene ${frame.sceneNumber}`);
+    }
+    // Generic guards and knights share ONE completed ensemble frame, not four
+    // old individual sheets. Prefer their latest completed group appearance,
+    // including a prior chapter, without ever referencing a future scene.
+    const incidentalIds=new Set(scene.characterStates.flatMap(state=>{
+      const character=project.characters.find(item=>item.id===state.characterId);
+      return character&&isIncidentalCharacter(character)?[character.id]:[];
+    }));
+    if(incidentalIds.size>=2){
+      const ensemble=[...earlier].reverse().find(frame=>frame.characterStates.filter(state=>incidentalIds.has(state.characterId)).length>=2);
+      if(ensemble?.image)add(continuity,ensemble.image,`Earlier scene ${ensemble.sceneNumber} — background knight/guard group; reuse collective armor, proportions and formation only, never separate identity sheets or past plot action`);
     }
     const location=project.locations.find((item)=>item.id===scene.locationId);
     add(continuity,location?.referenceImage,`Location master: ${location?.name}`);
     for(const state of scene.characterStates){
       const character=project.characters.find((item)=>item.id===state.characterId);
-      if(character?.referenceImage)continue;
+      if(!character||isIncidentalCharacter(character)||character.referenceImage)continue;
+      // The latest included scene already shows this character. Do not add
+      // another older identity photo just because no four-view master exists.
+      const newest=earlier.at(-1);
+      if(newest?.image&&continuity.some(ref=>ref.image===newest.image&&ref.label.includes("Previous completed scene"))&&newest.characterStates.some(entry=>entry.characterId===state.characterId))continue;
       const anchor=earlier.find((item)=>item.characterStates.some((entry)=>entry.characterId===state.characterId));
       add(continuity,anchor?.image,`Earlier scene ${anchor?.sceneNumber} containing ${character?.name}; face and outfit only`);
     }
     if(location&&!location.referenceImage){
-      const anchor=earlier.find((item)=>item.locationId===scene.locationId);
-      add(continuity,anchor?.image,`Earlier scene ${anchor?.sceneNumber} at ${location.name}; architecture only`);
+      const newest=earlier.at(-1);
+      const newestIsLocationReference=newest?.image&&newest.locationId===scene.locationId&&continuity.some(ref=>ref.image===newest.image&&ref.label.includes("Previous completed scene"));
+      if(!newestIsLocationReference){
+        const anchor=earlier.find((item)=>item.locationId===scene.locationId);
+        add(continuity,anchor?.image,`Earlier scene ${anchor?.sceneNumber} at ${location.name}; architecture only`);
+      }
     }
   }
   // Preserve all existing active identities. The server packs overflow into

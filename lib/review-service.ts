@@ -1,13 +1,13 @@
 import {AsyncLocalStorage} from "node:async_hooks";
 
-export type ReviewFailureReason="timeout"|"rate-limit"|"service-unavailable"|"authentication"|"permission"|"quota"|"bad-request"|"configuration"|"invalid-response"|"invalid-image"|"unknown";
+export type ReviewFailureReason="timeout"|"rate-limit"|"conflict"|"service-unavailable"|"authentication"|"permission"|"quota"|"bad-request"|"configuration"|"invalid-response"|"invalid-image"|"unknown";
 export class ReviewServiceError extends Error{
   constructor(public readonly reason:ReviewFailureReason,public readonly transient=false,public readonly status?:number,public readonly retryAfterMs=0,public readonly upstreamCode?:string,public readonly parameter?:string,public readonly responseIssue?:"empty"|"truncated"|"non-text"|"ambiguous"|"invalid-json"|"invalid-schema"){super("Visual reviewer: "+reason);this.name="ReviewServiceError"}
 }
 export function reviewHttpError(status:number,retryAfter:string|null=null){
   const seconds=Number(retryAfter),date=retryAfter?Date.parse(retryAfter):NaN;
   const wait=Number.isFinite(seconds)&&seconds>0?seconds*1000:Number.isFinite(date)?Math.max(0,date-Date.now()):0;
-  return new ReviewServiceError(status===429?"rate-limit":status===401?"authentication":status===403?"permission":status===402?"quota":status===404?"configuration":status===408?"timeout":status>=500?"service-unavailable":"bad-request",status===429||status===408||status>=500,status,wait);
+  return new ReviewServiceError(status===429?"rate-limit":status===401?"authentication":status===403?"permission":status===402?"quota":status===404?"configuration":status===408?"timeout":status===409?"conflict":status>=500?"service-unavailable":"bad-request",status===429||status===408||status===409||status>=500,status,wait);
 }
 export function reviewerResponseError(status:number,payload:unknown,retryAfter:string|null=null){
   const error=(payload as {error?:{code?:unknown;type?:unknown;message?:unknown;param?:unknown}}|null)?.error;
@@ -33,12 +33,12 @@ export function reviewFailure(error:unknown):ReviewServiceError{
 }
 const budget=new AsyncLocalStorage<number>();
 export function withVisualReviewBudget<T>(milliseconds:number,task:()=>Promise<T>){return budget.run(Date.now()+milliseconds,task)}
-// A character sheet asks for three independent observations. Bound concurrent
-// requests across those checks and concurrent scene requests in this process.
+// Serialize reviewer calls per process. Simultaneous visual requests may receive
+// upstream HTTP 409 conflicts; image generation itself remains unaffected.
 let active=0;
 const waiters:Array<()=>void>=[];
 async function acquire(){
-  if(active>=2)await new Promise<void>((resolve)=>waiters.push(resolve));
+  if(active>=1)await new Promise<void>((resolve)=>waiters.push(resolve));
   else active++;
   return ()=>{const next=waiters.shift();if(next)next();else active--};
 }
