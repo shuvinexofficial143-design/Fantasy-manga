@@ -7,7 +7,7 @@ describe("local scene-character memory",()=>{
  it("indexes character ID, names, chapter and scene sightings with background flags",()=>{
    const p=createProject();p.characters=[{id:"doctor",name:"Dr Rao",role:"support",appearance:"Dark hair",outfit:"White coat"}];
    const first=createImage(10,"Doctor appears",[state("doctor","background","back view")]);first.chapterNumber=1;first.image="first";
-   const second=createImage(20,"Doctor close-up",[state("doctor")]);second.chapterNumber=5;second.image="second";second.cameraShot="close-up";
+   const second=createImage(20,"Doctor close-up",[state("doctor")]);second.chapterNumber=5;second.image="second";second.cameraShot="close-up";second.visibilityStatus="verified";second.characterVisibility=[{characterId:"doctor",clarity:"clear",confidence:.98,faceVisible:true,box:{x:.2,y:.1,width:.4,height:.75}}];
    p.images=[first,second];
    const memory=sceneCharacterMemories(p)[0];
    expect(memory.name).toBe("Dr Rao");expect(memory.appearance).toBe("Dark hair");expect(memory.outfit).toBe("White coat");
@@ -27,8 +27,8 @@ describe("local scene-character memory",()=>{
  it("sorts a good old identity shot above a recent obscured group shot and excludes future scenes",()=>{
    const p=createProject();const person={id:"a",name:"A",role:"support",appearance:"",outfit:""};
    p.characters=[person];
-   const good=createImage(1,"Portrait",[state("a")]);good.cameraShot="close-up";good.image="good";
-   const poor=createImage(2,"Crowd",[state("a","background","back view")]);poor.image="poor";poor.cameraShot="extreme wide";
+   const good=createImage(1,"Portrait",[state("a")]);good.cameraShot="close-up";good.image="good";good.visibilityStatus="verified";good.characterVisibility=[{characterId:"a",clarity:"clear",confidence:.94,faceVisible:true,box:{x:.1,y:.1,width:.4,height:.8}}];
+   const poor=createImage(2,"Crowd",[state("a","background","back view")]);poor.image="poor";poor.cameraShot="extreme wide";poor.visibilityStatus="verified";poor.characterVisibility=[{characterId:"a",clarity:"tiny",confidence:.96,faceVisible:false,box:{x:.75,y:.68,width:.02,height:.06}}];
    const target=createImage(3,"Return",[state("a")]);
    const future=createImage(4,"Later",[state("a")]);future.image="future";
    p.images=[good,poor,target,future];
