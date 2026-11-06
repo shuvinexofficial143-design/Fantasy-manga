@@ -111,7 +111,7 @@ export function BackgroundChapterPipeline({state,setState}:{state:StudioState;se
      let priorLocationId=scenes.at(-1)?.locationId;
      const made=analysis.scenes.map((item)=>{
       const scene=createImage(chapterNumber*1000+localScene++,item.sourceText,namedSceneCharacters(item.characters,characters));
-      scene.visualDescription=item.visualDescription;scene.visualSafetyPlan=item.visualSafetyPlan;
+      scene.visualDescription=item.visualDescription;scene.directorPrompt=item.imagePrompt||"";scene.visualSafetyPlan=item.visualSafetyPlan;
       scene.chapterNumber=chapterNumber;scene.title=item.title||scene.title;scene.locationId=findLocation(locations,item.locationName)||priorLocationId;priorLocationId=scene.locationId;
       scene.cameraShot=item.cameraShot||scene.cameraShot;scene.cameraAngle=item.cameraAngle||scene.cameraAngle;scene.cameraDirection=item.cameraDirection||scene.cameraDirection;scene.continuityNotes=item.continuityNotes||"Continue chapter state from the previous visual.";scene.prompt="";
       return scene;
