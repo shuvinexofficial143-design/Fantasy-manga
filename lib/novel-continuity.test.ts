@@ -91,7 +91,7 @@ it("ignores four saved background Knight sheets and reuses one group frame from 
  expect(refs.images.every(image=>!image.startsWith("old-knight-"))).toBe(true);
  expect(JSON.stringify(project)).toBe(before);
 });
-it("reuses a recurring character's first completed scene without creating a master or using future scenes",()=>{
+it("reuses a recurring character's most recent completed scene without using future scenes",()=>{
  const project=createProject();project.imageProvider="sensenova";
  project.characters=[{id:"guest",name:"Guest",role:"support",appearance:"Adult",outfit:"Green"}];
  const states=[{characterId:"guest",position:"left",action:"talk",direction:"right",expression:"calm",stateNotes:""}];
@@ -99,7 +99,7 @@ it("reuses a recurring character's first completed scene without creating a mast
  project.images[0].image="first-scene";project.images[1].image="second-scene";project.images[3].image="future-scene";
  project.images[2].usePreviousImage=false;
  const before=JSON.stringify(project),refs=novelReferences(project.images[2],project);
- expect(refs.images).toEqual(["first-scene"]);expect(refs.labels[0]).toContain("containing Guest");expect(JSON.stringify(project)).toBe(before);
+ expect(refs.images).toEqual(["second-scene"]);expect(refs.labels[0]).toContain("containing Guest");expect(JSON.stringify(project)).toBe(before);
  expect(novelReferences(project.images[0],project).images).toEqual([]);
 });
 it("keeps legacy uploaded character images and merges shared ensemble anchor roles",()=>{
