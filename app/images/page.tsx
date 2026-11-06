@@ -89,9 +89,10 @@ export default function ImagesPage(){
   };
 
   const recordFailure=(working:Project,sceneId:string,reason:unknown):Project=>{
-    const message=reason instanceof Error?reason.message:"Image generation failed.";
+    const message=reason instanceof Error?(/aborted without reason|signal is aborted|AbortError/i.test(reason.message)||reason.name==="AbortError"?"Browser/API ने request बीच में बंद कर दी। पहले से बनी Images सुरक्षित हैं। Retry Image या Generate Remaining से जारी रखें।":reason.message):"Image generation failed.";
     const rawCode=(reason as {code?:unknown}|null)?.code;
-    const failureCode=typeof rawCode==="string"?rawCode:undefined;
+    const transportAbort=reason instanceof Error&&(/aborted without reason|signal is aborted|AbortError/i.test(reason.message)||reason.name==="AbortError");
+    const failureCode=typeof rawCode==="string"?rawCode:transportAbort?"IMAGE_REQUEST_ABORTED":undefined;
     const failureDiagnostics=(reason as {diagnostics?:CinematicImage["failureDiagnostics"]})?.diagnostics;
     const held=reason as {reviewToken?:string;reviewExpiresAt?:number;requestKey?:string};
     const reviewSession=failureDiagnostics?.target!=="character-sheet"&&held?.reviewToken&&held.reviewExpiresAt&&held.requestKey?{token:held.reviewToken,expiresAt:held.reviewExpiresAt,requestKey:held.requestKey}:undefined;
@@ -141,7 +142,7 @@ export default function ImagesPage(){
             }catch(reason){
               working=recordFailure(working,id,reason);
               commit(working);
-              const failureCode=(reason as {code?:unknown}|null)?.code;
+              const failureCode=working.images.find(item=>item.id===id)?.failureCode;
               const reviewReason=(reason as {diagnostics?:CinematicImage["failureDiagnostics"]})?.diagnostics?.reviewFailure?.reason;
               if(imageFailureAction(working.imageProvider,failureCode,reviewReason)==="skip-scene"){
                 // No generation without this scene's completed safety review.
@@ -176,7 +177,7 @@ export default function ImagesPage(){
               :recordFailure(working,batch[index],result.reason);
           }
           commit(working);
-          const failed=results.find((result)=>result.status==="rejected"&&imageFailureAction(working.imageProvider,(result.reason as {code?:unknown})?.code,(result.reason as {diagnostics?:CinematicImage["failureDiagnostics"]})?.diagnostics?.reviewFailure?.reason)==="stop-batch");
+          const failed=results.find((result,index)=>result.status==="rejected"&&imageFailureAction(working.imageProvider,working.images.find(item=>item.id===batch[index])?.failureCode,(result.reason as {diagnostics?:CinematicImage["failureDiagnostics"]})?.diagnostics?.reviewFailure?.reason)==="stop-batch");
           if(failed?.status==="rejected")throw failed.reason;
           offset+=batch.length;
           if(concurrency<maxConcurrency&&offset<pendingIds.length)concurrency=Math.min(maxConcurrency,concurrency+1);
