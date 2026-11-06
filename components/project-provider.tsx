@@ -112,7 +112,7 @@ export function ProjectProvider({children}:{children:React.ReactNode}){
   const saveQueue=useRef<Promise<void>>(Promise.resolve());
   const saveTimer=useRef<ReturnType<typeof setTimeout>|null>(null);
   const latestState=useRef(state);
-  latestState.current=state;
+  useEffect(()=>{latestState.current=state},[state]);
   // Best-effort final checkpoint when Chrome backgrounds/closes a tab.
   // Pagehide cannot guarantee completion, so downloadable backups remain important.
   useEffect(()=>{
