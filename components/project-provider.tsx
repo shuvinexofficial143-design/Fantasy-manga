@@ -14,7 +14,7 @@ const LEGACY_KEYS=["fantasy-cinematic-studio-v2","fantasy-cinematic-studio-v1"];
 const seedProject=createProject("My Cinematic Project");
 const initialState:StudioState={activeProjectId:seedProject.id,projects:[seedProject]};
 
-type ProjectContextValue={state:StudioState;project:Project;setState:React.Dispatch<React.SetStateAction<StudioState>>;updateProject:(fn:(project:Project)=>Project)=>void;createNewProject:()=>void;persistenceError:string};
+type ProjectContextValue={state:StudioState;project:Project;setState:React.Dispatch<React.SetStateAction<StudioState>>;updateProject:(fn:(project:Project)=>Project)=>void;createNewProject:()=>void;downloadBackup:()=>void;restoreBackup:(file:File)=>Promise<boolean>;persistenceError:string};
 const ProjectContext=createContext<ProjectContextValue|null>(null);
 
 function openDb():Promise<IDBDatabase>{
@@ -83,6 +83,8 @@ function normalizeProject(project:Partial<Project>):Project{
     locations:Array.isArray(project.locations)?project.locations.map((location)=>({...location,locked:location.locked!==false,continuityNotes:location.continuityNotes||""})):[],
     images:Array.isArray(project.images)?project.images.map((image)=>({
       ...image,
+      // In-progress browser requests cannot survive a reload. Resume only unfinished scenes.
+      status:image.image?"completed":image.status==="generating"?"idle":image.status,
       cameraShot:image.cameraShot||"medium wide shot",
       cameraAngle:image.cameraAngle||"eye level",
       cameraDirection:image.cameraDirection||"preserve screen direction from previous scene",
@@ -110,6 +112,8 @@ export function ProjectProvider({children}:{children:React.ReactNode}){
   const [persistenceError,setPersistenceError]=useState("");
   const saveQueue=useRef<Promise<void>>(Promise.resolve());
   const saveTimer=useRef<ReturnType<typeof setTimeout>|null>(null);
+  const latestState=useRef(state);
+  useEffect(()=>{latestState.current=state},[state]);
 
   useEffect(()=>{let mounted=true;void (async()=>{
     try{
@@ -140,11 +144,50 @@ export function ProjectProvider({children}:{children:React.ReactNode}){
     return()=>{if(saveTimer.current)clearTimeout(saveTimer.current)};
   },[state,hydrated]);
 
+  // Flush debounced changes when the browser moves this tab into the background.
+  // IndexedDB writes during pagehide are best-effort; downloaded backups remain important.
+  useEffect(()=>{
+    if(!hydrated)return;
+    const flush=()=>{
+      if(saveTimer.current)clearTimeout(saveTimer.current);
+      saveTimer.current=null;
+      saveQueue.current=saveQueue.current.catch(()=>{}).then(()=>saveState(latestState.current));
+      void saveQueue.current.catch(()=>setPersistenceError("Project save नहीं हुआ। Backup डाउनलोड करके रखें।"));
+    };
+    const onVisibility=()=>{if(document.visibilityState==="hidden")flush()};
+    document.addEventListener("visibilitychange",onVisibility);
+    window.addEventListener("pagehide",flush);
+    return()=>{
+      document.removeEventListener("visibilitychange",onVisibility);
+      window.removeEventListener("pagehide",flush);
+    };
+  },[hydrated]);
+
   const project=state.projects.find((item)=>item.id===state.activeProjectId)||state.projects[0]||seedProject;
   const updateProject=(fn:(project:Project)=>Project)=>setState((current)=>({...current,projects:current.projects.map((item)=>item.id===project.id?fn(item):item)}));
   const createNewProject=()=>{const next=createProject(`Cinematic Project ${state.projects.length+1}`);setState((current)=>({...current,activeProjectId:next.id,projects:[...current.projects,next]}))};
+  const downloadBackup=()=>{
+    const backup={format:"fantasy-manga-browser-backup",version:1,exportedAt:new Date().toISOString(),state};
+    const blob=new Blob([JSON.stringify(backup)],{type:"application/json"});
+    const url=URL.createObjectURL(blob),anchor=document.createElement("a");
+    anchor.href=url;anchor.download="fantasy-manga-backup-"+new Date().toISOString().slice(0,10)+".json";
+    document.body.appendChild(anchor);anchor.click();anchor.remove();
+    setTimeout(()=>URL.revokeObjectURL(url),60_000);
+  };
+  const restoreBackup=async(file:File):Promise<boolean>=>{
+    if(!file.name.toLowerCase().endsWith(".json"))throw new Error("केवल Fantasy Manga JSON Backup चुनें।");
+    let parsed:unknown;
+    try{parsed=JSON.parse(await file.text())}catch{throw new Error("Backup JSON पढ़ा नहीं जा सका।")}
+    const backup=parsed as {format?:unknown;version?:unknown;state?:unknown}|null;
+    if(backup?.format!=="fantasy-manga-browser-backup"||backup.version!==1)throw new Error("यह Fantasy Manga का मान्य Backup नहीं है।");
+    const restored=normalizeState(backup.state);
+    if(!restored)throw new Error("Backup में उपयोग करने योग्य Project Data नहीं मिला।");
+    if(!window.confirm("Restore करने पर इस Browser के मौजूदा Projects बदल जाएँगे। पहले उनका Backup Download कर लें। जारी रखें?"))return false;
+    rawSetState(restored);
+    return true;
+  };
 
-  return <ProjectContext.Provider value={{state,project,setState,updateProject,createNewProject,persistenceError}}><BackgroundChapterPipeline state={state} setState={setState}/>{children}</ProjectContext.Provider>;
+  return <ProjectContext.Provider value={{state,project,setState,updateProject,createNewProject,downloadBackup,restoreBackup,persistenceError}}><BackgroundChapterPipeline state={state} setState={setState}/>{children}</ProjectContext.Provider>;
 }
 
 export function useProject(){

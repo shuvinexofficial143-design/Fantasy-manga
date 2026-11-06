@@ -59,25 +59,40 @@ export function novelReferences(scene:CinematicImage,project:Project,previous?:C
       // another older identity photo just because no four-view master exists.
       const newest=earlier.at(-1);
       if(newest?.image&&continuity.some(ref=>ref.image===newest.image&&ref.label.includes("Previous completed scene"))&&newest.characterStates.some(entry=>entry.characterId===state.characterId))continue;
-      const anchor=earlier.find((item)=>item.characterStates.some((entry)=>entry.characterId===state.characterId));
+      const anchor=[...earlier].reverse().find((item)=>item.characterStates.some((entry)=>entry.characterId===state.characterId));
       add(continuity,anchor?.image,`Earlier scene ${anchor?.sceneNumber} containing ${character?.name}; face and outfit only`);
     }
     if(location&&!location.referenceImage){
       const newest=earlier.at(-1);
       const newestIsLocationReference=newest?.image&&newest.locationId===scene.locationId&&continuity.some(ref=>ref.image===newest.image&&ref.label.includes("Previous completed scene"));
       if(!newestIsLocationReference){
-        const anchor=earlier.find((item)=>item.locationId===scene.locationId);
+        const anchor=[...earlier].reverse().find((item)=>item.locationId===scene.locationId);
         add(continuity,anchor?.image,`Earlier scene ${anchor?.sceneNumber} at ${location.name}; architecture only`);
       }
     }
   }
-  // Preserve all existing active identities. The server packs overflow into
-  // temporary reference canvases instead of omitting a person or generating
-  // another character sheet. Text-only integrations still receive no images.
+  // Prefer clear, directly supplied images over mosaics. Preserve every active
+  // identity; a rare scene with more identity masters than input slots still
+  // needs server-side packing rather than silently dropping a character.
   const masters=continuity.filter((ref)=>ref.label.startsWith("Character master:"));
-  const other=continuity.filter((ref)=>!masters.includes(ref));
+  const other=continuity.filter((ref)=>!masters.includes(ref)).sort((a,b)=>{
+    const score=(label:string)=>label.startsWith("Previous completed scene")?0
+      :label.startsWith("Location master:")?1
+      :label.includes(" containing ")?2
+      :label.includes("background knight/guard group")?3
+      :label.includes(" at ")?4:5;
+    return score(a.label)-score(b.label);
+  });
   const refs:Array<{image:string;label:string}>=[];
-  if(limit)for(const ref of [...masters,...other,...styles])add(refs,ref.image,ref.label);
+  if(limit){
+    for(const ref of masters)add(refs,ref.image,ref.label);
+    if(refs.length<limit){
+      // Character, camera and location continuity outrank optional style tiles.
+      // A single style reference is included only when there is still room.
+      for(const ref of other)if(refs.length<limit)add(refs,ref.image,ref.label);
+      if(styles.length&&refs.length<limit)add(refs,styles[0].image,styles[0].label);
+    }
+  }
   return {images:refs.map((ref)=>ref.image),labels:refs.map((ref)=>ref.label),styleCount:refs.filter((ref)=>styles.some((style)=>style.image===ref.image)).length,continuityCount:refs.filter((ref)=>continuity.some((item)=>item.image===ref.image)).length,omittedCharacterNames:[],needsPacking:refs.length>limit,providerLimit:limit};
 }
 

@@ -24,6 +24,14 @@ export default function ImagesPage(){
   const [busy,setBusy]=useState("");
   const generationController=useRef<AbortController|null>(null);
   useEffect(()=>()=>generationController.current?.abort(),[]);
+  // The batch runs in the current Chrome tab: warn before an accidental close.
+  // This cannot guarantee continued execution after the tab or device closes.
+  useEffect(()=>{
+    if(!busy)return;
+    const warn=(event:BeforeUnloadEvent)=>{event.preventDefault();event.returnValue="";};
+    window.addEventListener("beforeunload",warn);
+    return()=>window.removeEventListener("beforeunload",warn);
+  },[busy]);
   const [configured,setConfigured]=useState<Partial<Record<Project["imageProvider"],boolean>>>({});
   useEffect(()=>{let active=true;void fetch("/api/image-models").then((response)=>response.ok?response.json():null).then((data)=>{if(active&&data?.configured)setConfigured(data.configured)}).catch(()=>{});return()=>{active=false}},[]);
   const [progress,setProgress]=useState("");
