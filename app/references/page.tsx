@@ -106,7 +106,7 @@ export default function ReferencesPage(){
 
     <section className="rounded-2xl border border-slate-200 bg-white p-5 text-sm leading-6 text-slate-600 shadow-sm">
       <b className="text-slate-900">Generation behavior:</b> ये references project-level हैं और current/future chapters की नई generations पर लागू होंगी। Existing generated images अपने आप नहीं बदलेंगी। ऊपर दिए switches से preset, uploaded references और continuity references अलग-अलग चालू या बंद करें।
-      <div className="mt-3"><Link href="/images" className="font-black text-violet-700">Open Images →</Link></div>
+      <div className="mt-3 flex flex-wrap gap-4"><Link href="/images" className="font-black text-violet-700">Open Images →</Link><Link href="/characters" className="font-black text-violet-700">Manage character references →</Link></div>
     </section>
   </div>;
 }
