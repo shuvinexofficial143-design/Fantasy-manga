@@ -22,7 +22,7 @@ describe("novel visual anchors",()=>{
     expect(refs.labels.slice(1).every((label)=>label.includes("style reference"))).toBe(true);
   });
 
-  it("uses previous completed frames newest-first for motion continuity",()=>{
+  it("uses the latest completed frame for continuity without redundant older frames",()=>{
     const project=createProject();
     const person={id:"hero",name:"Hero",role:"Main",appearance:"Black hair",outfit:"Blue coat"};
     project.characters=[person];
@@ -33,9 +33,8 @@ describe("novel visual anchors",()=>{
     const third=createImage(3,"Hero moves",first.characterStates);third.locationId="hall";
     project.images=[first,second,third];
     const refs=novelReferences(third,project,second);
-    expect(refs.images).toEqual([second.image,first.image]);
+    expect(refs.images).toEqual([second.image]);
     expect(refs.labels[0]).toContain("Previous completed scene 2");
-    expect(refs.labels[1]).toContain("Previous completed scene 1");
   });
 });
 
