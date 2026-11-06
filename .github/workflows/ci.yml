@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, "feature/auto-cinematic-consistency-v14"]
   pull_request:
 
 jobs:
