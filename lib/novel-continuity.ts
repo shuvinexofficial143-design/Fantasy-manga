@@ -87,11 +87,10 @@ export function novelReferences(scene:CinematicImage,project:Project,previous?:C
   if(limit){
     for(const ref of masters)add(refs,ref.image,ref.label);
     if(refs.length<limit){
-      // One style input is enough. Identity and scene continuity take priority.
-      const contextSlots=Math.max(0,limit-refs.length-(styles.length?1:0));
-      for(const ref of other.slice(0,contextSlots))add(refs,ref.image,ref.label);
-      if(styles.length&&refs.length<limit)add(refs,styles[0].image,styles[0].label);
+      // Character, camera and location continuity outrank optional style tiles.
+      // A single style reference is included only when there is still room.
       for(const ref of other)if(refs.length<limit)add(refs,ref.image,ref.label);
+      if(styles.length&&refs.length<limit)add(refs,styles[0].image,styles[0].label);
     }
   }
   return {images:refs.map((ref)=>ref.image),labels:refs.map((ref)=>ref.label),styleCount:refs.filter((ref)=>styles.some((style)=>style.image===ref.image)).length,continuityCount:refs.filter((ref)=>continuity.some((item)=>item.image===ref.image)).length,omittedCharacterNames:[],needsPacking:refs.length>limit,providerLimit:limit};
