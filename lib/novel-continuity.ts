@@ -1,4 +1,5 @@
 import type {Character,CinematicImage,Location,Project,SceneCharacterState} from "./types";
+import {isIncidentalCharacter} from "./character-reference-policy";
 
 export function canonicalName(name:string){return name.trim().toLocaleLowerCase().replace(/[^\p{L}\p{N}]+/gu," ").trim()}
 
@@ -29,17 +30,28 @@ export function novelReferences(scene:CinematicImage,project:Project,previous?:C
     const earlier=project.images.filter((item)=>item.sceneNumber<scene.sceneNumber&&item.image).sort((a,b)=>a.sceneNumber-b.sceneNumber);
     for(const state of scene.characterStates){
       const character=project.characters.find((item)=>item.id===state.characterId);
-      add(continuity,character?.referenceImage,`Character master: ${character?.name}${character?.referenceSheet?" — four-view turnaround of ONE person; choose one natural scene pose and do not duplicate the person four times":""}`);
+      if(character&&!isIncidentalCharacter(character))add(continuity,character.referenceImage,`Character master: ${character.name}${character.referenceSheet?" — four-view turnaround of ONE person; choose one natural scene pose and do not duplicate the person four times":""}`);
     }
     if(scene.usePreviousImage){
       if(previous?.image&&previous.sceneNumber<scene.sceneNumber)add(continuity,previous.image,`Previous completed scene ${previous.sceneNumber}`);
       for(const frame of earlier.slice(-2).reverse())add(continuity,frame.image,`Previous completed scene ${frame.sceneNumber}`);
     }
+    // Generic guards and knights share ONE completed ensemble frame, not four
+    // old individual sheets. Prefer their latest completed group appearance,
+    // including a prior chapter, without ever referencing a future scene.
+    const incidentalIds=new Set(scene.characterStates.flatMap(state=>{
+      const character=project.characters.find(item=>item.id===state.characterId);
+      return character&&isIncidentalCharacter(character)?[character.id]:[];
+    }));
+    if(incidentalIds.size>=2){
+      const ensemble=[...earlier].reverse().find(frame=>frame.characterStates.filter(state=>incidentalIds.has(state.characterId)).length>=2);
+      if(ensemble?.image)add(continuity,ensemble.image,`Earlier scene ${ensemble.sceneNumber} — background knight/guard group; reuse collective armor, proportions and formation only, never separate identity sheets or past plot action`);
+    }
     const location=project.locations.find((item)=>item.id===scene.locationId);
     add(continuity,location?.referenceImage,`Location master: ${location?.name}`);
     for(const state of scene.characterStates){
       const character=project.characters.find((item)=>item.id===state.characterId);
-      if(character?.referenceImage)continue;
+      if(!character||isIncidentalCharacter(character)||character.referenceImage)continue;
       const anchor=earlier.find((item)=>item.characterStates.some((entry)=>entry.characterId===state.characterId));
       add(continuity,anchor?.image,`Earlier scene ${anchor?.sceneNumber} containing ${character?.name}; face and outfit only`);
     }
