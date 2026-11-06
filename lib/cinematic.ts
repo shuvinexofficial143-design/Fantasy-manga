@@ -87,7 +87,7 @@ export function buildCinematicPrompt({scene,project,previousScene}:{scene:Cinema
     adjusted
       ?`CONTINUITY STRENGTH: ${scene.continuityStrength}/100. Preserve identity, costume, setting, character count, props outside the camera's focus, light direction and scene geography. Use an expressive camera angle, natural occlusion or shallow depth of field for the distant action.`
       :`CONTINUITY STRENGTH: ${scene.continuityStrength}/100. Identity, intact costume, story-relevant carried props, location geometry, time of day, light direction, character count and screen geography are hard constraints. Only story-authorized action, pose, expression and camera framing should change.`,
-    "REFERENCE PRIORITY: character masters define identity and outfit; location masters define environment; previous completed frame defines colors, atmosphere, shot continuity, landmarks and screen direction.",
+    "SCENE MEMORY PRIORITY: completed earlier story scenes define recurring character identity, face, age and outfit; their associated character records define canonical appearance; same-location scenes define architecture; the previous completed frame defines palette, shot continuity and screen direction. Never reproduce a four-view identity sheet or other people from an old group scene.",
     "CONSISTENCY: preserve recurring faces, outfits, visual language and background landmarks; do not add unrelated people, objects, on-screen text or narrative details.",
     "COMPOSITION: one premium full-color story keyframe in the selected medium, unified cinematic frame, intentional lens, depth, atmospheric perspective, polished lighting and color grading.",
     "LAYOUT: no manga panels, webtoon panels, comic gutters, captions, speech bubbles, watermark, logo or UI."
