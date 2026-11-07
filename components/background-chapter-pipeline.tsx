@@ -22,15 +22,26 @@ type Analysis={
  error?:string;
 };
 
-async function post<T>(url:string,body:unknown,attempts=3):Promise<T>{
+async function post<T>(url:string,body:unknown,attempts=2,timeoutMs=100_000):Promise<T>{
  let last="Request failed";
  for(let i=0;i<attempts;i++){
-  const response=await fetch(url,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
+  let response:Response;
+  try{
+   response=await fetch(url,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body),signal:AbortSignal.timeout(timeoutMs)});
+  }catch(error){
+   if(error instanceof Error&&error.name==="TimeoutError"){
+    last="Story analysis request timed out. Retry from saved chapter data.";
+    if(i<attempts-1)continue;
+    throw new Error(last);
+   }
+   throw error;
+  }
   const data=await response.json().catch(()=>({})) as T&{error?:string};
   if(response.ok)return data;
   last=data.error||("Request failed ("+response.status+")");
   if(![429,502,503,504].includes(response.status)||i===attempts-1)throw new Error(last);
-  await sleep(1200*Math.pow(2,i));
+  const retryAfter=Number(response.headers.get("retry-after"));
+  await sleep(Number.isFinite(retryAfter)&&retryAfter>0?Math.min(retryAfter*1000,8_000):1200*Math.pow(2,i));
  }
  throw new Error(last);
 }
@@ -126,7 +137,7 @@ export function BackgroundChapterPipeline({state,setState}:{state:StudioState;se
      return {...versioned,characters:mergeCharacters(p.characters,analyses.flatMap((a)=>a.characters||[])),locations:mergeLocations(p.locations,analyses.flatMap((a)=>a.locations||[])),images:[...p.images.filter((img)=>!oldIds.has(img.id)),...scenes],novelImport:{...p.novelImport,chapters:p.novelImport.chapters.map((c)=>c.number===chapterNumber?{...c,summary:partSummaries.join(" "),explainer:partExplainers.join("\n\n"),sceneIds:scenes.map((s)=>s.id),analysisProgress:progress,pipeline:{stage:"polishing",progress:70,message:"Final explainer polish हो रहा है…",updatedAt:new Date().toISOString()}}:c)},updatedAt:new Date().toISOString()};
     })}));
 
-    const polished=await post<{explainer?:string;summary?:string}>("/api/novel/polish",{chapterNumber,draftExplainers:partExplainers,partSummaries,previousSummary,analysisProvider:project.analysisProvider,analysisModel:project.analysisModel}).catch((): {explainer?:string;summary?:string}=>({}));
+    const polished=await post<{explainer?:string;summary?:string}>("/api/novel/polish",{chapterNumber,draftExplainers:partExplainers,partSummaries,previousSummary,analysisProvider:project.analysisProvider,analysisModel:project.analysisModel},1,25_000).catch((): {explainer?:string;summary?:string}=>({}));
     patchChapter((c)=>({...c,summary:polished.summary||partSummaries.join(" "),explainer:polished.explainer||partExplainers.join("\n\n"),analyzedAt:new Date().toISOString(),status:"analyzed",analysisProgress:{...progress,status:"complete",updatedAt:new Date().toISOString()},pipeline:{stage:"ready",progress:100,message:"Analysis + visual planning ready. Image/voice pipeline can continue independently.",updatedAt:new Date().toISOString()}}));
    }catch(error){
     const message=error instanceof Error?error.message:"Background chapter pipeline failed.";
