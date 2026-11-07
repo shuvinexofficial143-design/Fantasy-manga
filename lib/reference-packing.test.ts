@@ -17,6 +17,24 @@ describe("reference overflow composition",()=>{
   expect(pixel(1024,80)[0]).toBeGreaterThan(200);expect(pixel(1024,980)[0]).toBeGreaterThan(200);
   expect(pixel(35,500).every(v=>v>230)).toBe(true);
  });
+ it("uses actual source indices for non-contiguous packed identity groups",async()=>{
+  const colors=["red","green","blue","yellow","magenta","cyan","black","white"];
+  const entries=await Promise.all(colors.map(async(color,index)=>({
+    image:await fixture(color),
+    label:index<6?"Character master: Identity "+index:index===6?"Previous completed scene":"Project style reference"
+  })));
+  const plan=await packReferenceImages(entries,5);
+  // The first composite holds group [0,3], not [0,1]. A regression here
+  // silently swaps a character's identity with another reference.
+  expect(plan.groups[0]).toEqual([0,3]);
+  const raw=await sharp(imageBytes(plan.images[0])).raw().toBuffer({resolveWithObject:true});
+  const rgb=(x:number,y:number)=>Array.from(raw.data.subarray((y*raw.info.width+x)*raw.info.channels,(y*raw.info.width+x)*raw.info.channels+3));
+  const first=rgb(1024,400),second=rgb(1024,1400);
+  expect(first[0]).toBeGreaterThan(180);expect(first[1]).toBeLessThan(100);
+  expect(second[0]).toBeGreaterThan(180);expect(second[1]).toBeGreaterThan(150);expect(second[2]).toBeLessThan(120);
+  expect(plan.labels[0]).toContain("R1 = Character master: Identity 0");
+  expect(plan.labels[0]).toContain("R4 = Character master: Identity 3");
+ });
  it("passes existing references through unchanged when no packing is needed",async()=>{
   const entries=[{image:await fixture("blue"),label:"Character master: Hero"}];
   expect(await packReferenceImages(entries,5)).toEqual({images:[entries[0].image],labels:[entries[0].label],packed:[false],groups:[[0]]});
