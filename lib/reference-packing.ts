@@ -45,11 +45,12 @@ export async function packReferenceImages(entries:ReferenceEntry[],limit:number)
     const layers:sharp.OverlayOptions[]=[];
     for(const [tile,index] of members.entries()){
       const left=(tile%columns)*width,top=Math.floor(tile/columns)*height;
+      const sourceIndex=members[tile];
       let image:Buffer;
-      try{image=await sharp(imageBytes(entries[index].image),{limitInputPixels:40_000_000}).rotate().resize(width-gap*2,height-70,{fit:"contain",background:"#fafafa"}).jpeg({quality:90}).toBuffer()}
-      catch{throw new ReferencePlanError("Reference R"+(index+1)+" पढ़ी नहीं गई। Saved image/file की समीक्षा करें।")}
+      try{image=await sharp(imageBytes(entries[sourceIndex].image),{limitInputPixels:40_000_000}).rotate().resize(width-gap*2,height-70,{fit:"contain",background:"#fafafa"}).jpeg({quality:90}).toBuffer()}
+      catch{throw new ReferencePlanError("Reference R"+(sourceIndex+1)+" पढ़ी नहीं गई। Saved image/file की समीक्षा करें।")}
       layers.push({input:image,left:left+gap,top:top+50});
-      layers.push({input:Buffer.from(`<svg width="${width}" height="45"><text x="20" y="34" font-size="30" font-family="sans-serif" fill="#111">R${index+1}</text></svg>`),left,top});
+      layers.push({input:Buffer.from(`<svg width="${width}" height="45"><text x="20" y="34" font-size="30" font-family="sans-serif" fill="#111">R${sourceIndex+1}</text></svg>`),left,top});
     }
     const canvas=await sharp({create:{width:size,height:size,channels:3,background:"#fafafa"}}).composite(layers).jpeg({quality:90,mozjpeg:true}).toBuffer();
     images.push("data:image/jpeg;base64,"+canvas.toString("base64"));
