@@ -24,11 +24,11 @@ export function buildSceneImageRequest(sceneId:string,project:Project){
   }).filter((value):value is string=>Boolean(value));
   const identityLock="CAST IDENTITY LOCK: Render ONLY the exact named cast for this beat. " +
     "Each character ID owns its own face, hairstyle, age and costume. NEVER assign another character's face or outfit to this ID. " +
-    "Old reference images are identity clues, not extra cast members. Do not duplicate, merge or swap characters.\\n"+
-    (cast.length?cast.join("\\n"):"No named recurring characters in this frame.");
+    "Old reference images are identity clues, not extra cast members. Do not duplicate, merge or swap characters.\n"+
+    (cast.length?cast.join("\n"):"No named recurring characters in this frame.");
   const prompt=project.imageProvider==="xkiro"
-    ?("Generate exactly ONE full-frame scene.\\n"+identityLock+"\\n\\n"+(compact||full)).slice(0,5200)
-    :identityLock+"\\n\\n"+full;
+    ?("Generate exactly ONE full-frame scene.\n"+identityLock+"\n\n"+(compact||full)).slice(0,5200)
+    :identityLock+"\n\n"+full;
   const refs=novelReferences(scene,project,previous);
   return {prompt,negativePrompt:project.useStylePreset!==false&&project.imageStylePreset==="reference-video"?scene.negativePrompt:"text, captions, logo, collage, duplicate character, inconsistent identity",aspectRatio:project.aspectRatio,provider:project.imageProvider,model:project.imageModel,visualCoverMode:project.visualCoverMode,seed:scene.seed||hashString(project.id+"|"+scene.characterStates.map((state)=>state.characterId).sort().join("|")+"|"+(scene.locationId||"")),referenceImages:refs.images,referenceLabels:refs.labels,referenceCrops:refs.crops};
 }
