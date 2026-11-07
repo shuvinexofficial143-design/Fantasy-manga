@@ -19,18 +19,28 @@ const uid=()=>typeof crypto!=="undefined"&&"randomUUID" in crypto?crypto.randomU
 
 const sleep=(ms:number)=>new Promise((resolve)=>setTimeout(resolve,ms));
 
-async function postJsonWithRetry<T>(url:string,body:unknown,attempts=3):Promise<T>{
+async function postJsonWithRetry<T>(url:string,body:unknown,attempts=2,timeoutMs=100_000):Promise<T>{
   let lastMessage="Request failed";
   for(let attempt=0;attempt<attempts;attempt+=1){
-    const response=await fetch(url,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
-    const data=await response.json().catch(()=>({})) as T&{error?:string};
-    if(response.ok)return data;
-    lastMessage=data.error||("Request failed ("+response.status+")");
-    const retryable=[429,502,503,504].includes(response.status);
-    if(!retryable||attempt===attempts-1)throw new Error(lastMessage);
-    const retryAfter=Number(response.headers.get("retry-after"));
-    const waitMs=Number.isFinite(retryAfter)&&retryAfter>0?retryAfter*1000:1500*Math.pow(2,attempt);
-    await sleep(waitMs);
+    try{
+      // A stalled server/provider must not leave Story Analyze spinning forever.
+      const response=await fetch(url,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body),signal:AbortSignal.timeout(timeoutMs)});
+      const data=await response.json().catch(()=>({})) as T&{error?:string};
+      if(response.ok)return data;
+      lastMessage=data.error||("Request failed ("+response.status+")");
+      if(![429,502,503,504].includes(response.status)||attempt===attempts-1)throw new Error(lastMessage);
+      const retryAfter=Number(response.headers.get("retry-after"));
+      const waitMs=Number.isFinite(retryAfter)&&retryAfter>0?Math.min(retryAfter*1000,8_000):1200*Math.pow(2,attempt);
+      await sleep(waitMs);
+    }catch(error){
+      if(error instanceof Error&&error.name==="TimeoutError"){
+        lastMessage="Story analysis timed out. Saved chapter checkpoint से फिर कोशिश करें।";
+        if(attempt===attempts-1)throw new Error(lastMessage);
+        continue;
+      }
+      // AbortError and real network failures must be visible, not silently masked.
+      throw error;
+    }
   }
   throw new Error(lastMessage);
 }
@@ -252,7 +262,7 @@ export default function NovelImportPage(){
           previousSegmentSummary:neighborContext,
           analysisProvider,
           analysisModel
-        });
+        },2,100_000);
         if(!analysis.scenes?.length)throw new Error(analysis.error||"Part "+(partIndex+1)+" से visual beats नहीं मिले।");
         return {partIndex,analysis};
       }));
@@ -314,7 +324,7 @@ export default function NovelImportPage(){
           previousSummary,
           analysisProvider,
           analysisModel
-        });
+        },1,25_000);
         if(polished.explainer)finalExplainer=polished.explainer;
         if(polished.summary)finalSummary=polished.summary;
       }catch(polishError){
